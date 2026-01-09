@@ -5,6 +5,5 @@
 
 ## Hướng dẫn sử dụng model
 
-* ai_model_checkpoint: File checkpoint của model tốt nhất
-* resnet50v2_garbage_classifier: File model cuối cùng đã được lưu lại
-* resnet50v2_garbage_classifier_savedmodel: File model đã được lưu lại theo định dạng SavedModel
+* mobilenetv3.weights.h5: File weight(cốt lõi) của model, cần được build lại trước khi sử dụng
+* mobilenetv3.keras: File model đã được lưu lại theo định dạng keras, có thể sử dụng trực tiếp

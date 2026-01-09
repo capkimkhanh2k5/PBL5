@@ -1,19 +1,37 @@
 import os
+import json
 import base64
 import numpy as np
+import tensorflow as tf
 from flask import Flask, render_template_string
-from keras.models import load_model
-from keras.utils import load_img, img_to_array
+from tensorflow.keras import layers, Model, regularizers
+from tensorflow.keras.applications import MobileNetV3Large
+from tensorflow.keras.utils import load_img, img_to_array
+# New import for loading full model
+from tensorflow.keras.models import load_model 
 from PIL import Image
 import io
 
 # Configuration
 TEST_DIR = "TestImage"
-IMAGE_SIZE = (224, 224)
+IMG_SIZE = (288, 288)
+BATCH_SIZE = 64
+NUM_CLASSES = 12
+L2_WEIGHT_DECAY = 1e-5
+# MODEL_PATH = "mobilenetv3.weights.h5" 
+MODEL_PATH = "mobilenetv3_full.keras"
+CLASS_NAMES_PATH = "class_names.json"
 
-# Class names
-CLASS_NAMES = ['battery', 'biological', 'brown-glass', 'cardboard', 'clothes', 
-               'green-glass', 'metal', 'paper', 'plastic', 'shoes', 'trash', 'white-glass']
+# Load class names from JSON (fallback to default if not found)
+def load_class_names():
+    if os.path.exists(CLASS_NAMES_PATH):
+        with open(CLASS_NAMES_PATH, 'r') as f:
+            return json.load(f)
+    # Fallback default
+    return ['battery', 'biological', 'brown-glass', 'cardboard', 'clothes', 
+            'green-glass', 'metal', 'paper', 'plastic', 'shoes', 'trash', 'white-glass']
+
+CLASS_NAMES = load_class_names()
 
 app = Flask(__name__)
 
@@ -197,7 +215,7 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         <h1>🗑️ Garbage Classification Results</h1>
-        <p class="subtitle">ResNet50V2 Model Testing on {{ total }} Random Images</p>
+        <p class="subtitle">MobileNetV3-Large Model Testing on {{ total }} Random Images</p>
         
         <div class="grid">
             {% for r in results %}
@@ -233,6 +251,32 @@ HTML_TEMPLATE = """
 </html>
 """
 
+# Build + load model by weigh
+# def build_model():
+#     """Rebuild the model architecture to load weights."""
+#     print("Building model architecture...")
+#     base_model = MobileNetV3Large(
+#         include_top=False,
+#         weights=None,  # No need to load Imagenet weights, we load our own
+#         input_shape=IMG_SIZE + (3,),
+#         include_preprocessing=True
+#     )
+#     
+#     # Reconstruct the exact architecture
+#     inputs = layers.Input(shape=IMG_SIZE + (3,))
+#     x = base_model(inputs, training=False)
+#     x = layers.GlobalAveragePooling2D()(x)
+#     x = layers.Dropout(0.2)(x)
+#     outputs = layers.Dense(
+#         NUM_CLASSES, 
+#         activation="softmax",
+#         dtype="float32",
+#         kernel_regularizer=regularizers.l2(L2_WEIGHT_DECAY)
+#     )(x)
+#     
+#     model = Model(inputs, outputs)
+#     return model
+
 def image_to_base64(img_path):
     """Convert image to base64 for embedding in HTML"""
     with Image.open(img_path) as img:
@@ -243,29 +287,38 @@ def image_to_base64(img_path):
 
 def classify_images(model):
     """Classify all images in TestImage folder"""
+    if not os.path.exists(TEST_DIR):
+        return []
+        
     images = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(('.jpg', '.jpeg', '.png'))][:40]
     results = []
     
     for img_name in images:
         img_path = os.path.join(TEST_DIR, img_name)
         
-        # Load and predict
-        img = load_img(img_path, target_size=IMAGE_SIZE)
-        img_array = img_to_array(img)
-        img_array = np.expand_dims(img_array, axis=0)
-        
-        predictions = model.predict(img_array, verbose=0)
-        predicted_class = CLASS_NAMES[np.argmax(predictions)]
-        
-        # Get actual class from filename
-        actual_class = img_name.split('_')[0]
-        
-        results.append({
-            'image_b64': image_to_base64(img_path),
-            'actual': actual_class,
-            'predicted': predicted_class,
-            'correct': predicted_class == actual_class
-        })
+        try:
+            # Load and predict
+            img = load_img(img_path, target_size=IMG_SIZE)
+            img_array = img_to_array(img)
+            img_array = np.expand_dims(img_array, axis=0)
+            
+            predictions = model.predict(img_array, verbose=0)
+            predicted_class = CLASS_NAMES[np.argmax(predictions)]
+            
+            actual_class = "unknown"
+            for cls in CLASS_NAMES:
+                if img_name.lower().startswith(cls):
+                    actual_class = cls
+                    break
+            
+            results.append({
+                'image_b64': image_to_base64(img_path),
+                'actual': actual_class,
+                'predicted': predicted_class,
+                'correct': predicted_class == actual_class
+            })
+        except Exception as e:
+            print(f"Error processing {img_name}: {e}")
     
     return results
 
@@ -285,11 +338,32 @@ def index():
     )
 
 if __name__ == "__main__":
-    print("Loading model...")
-    model = load_model('resnet50v2_garbage_classifier.keras')
-    print("Model loaded!")
+    print("=" * 50)
+    print("INITIALIZING TEST SERVER")
+    print("=" * 50)
+    
+    # 1. Load Model (Keras format)
+    if os.path.exists(MODEL_PATH):
+        print(f"Loading full model from: {MODEL_PATH}")
+        try:
+            model = load_model(MODEL_PATH)
+            print("✅ Model loaded successfully (Architecture + Weights)")
+        except Exception as e:
+            print(f"❌ Error loading model: {e}")
+            exit(1)
+    else:
+        print(f"❌ Error: Model file not found: {MODEL_PATH}")
+        print("Please run ExportModel.py first to generate the .keras file.")
+        exit(1)
+
+    # 2. Build + Load Model
+    # model = build_model()
+    # if os.path.exists("mobilenetv3.weights.h5"):
+    #    model.load_weights("mobilenetv3.weights.h5")
+        
+    # 3. Start Server
     print("\n" + "=" * 50)
-    print("Starting web server...")
-    print("Open browser: http://localhost:5000")
+    print("🚀 SERVER STARTED")
+    print("👉 Open browser: http://localhost:5000")
     print("=" * 50 + "\n")
     app.run(debug=False, port=5000)

@@ -15,9 +15,6 @@ ENV/
 *.hdf5
 *.pb
 *.ckpt*
-*_savedmodel/
-resnet50v2_garbage_classifier_savedmodel/
-ai_model_checkpoint*
 
 # TensorFlow/Keras
 logs/
@@ -31,7 +28,7 @@ checkpoint
 *.swo
 .DS_Store
 
-# Test images (optional - remove if you want to include them)
+# Test images
 TestImage/
 
 # Jupyter
