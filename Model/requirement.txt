@@ -1,0 +1,31 @@
+# Core dependencies
+tensorflow>=2.13.0
+flask>=2.3.0
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Data processing
+numpy>=1.24.0
+opencv-python>=4.8.0
+pillow>=10.0.0
+pyyaml>=6.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Utilities
+tqdm>=4.65.0
+tensorboard>=2.13.0
+
+# Export formats
+onnx>=1.14.0
+onnxruntime>=1.15.0
+onnxsim>=0.4.33
+
+# Optional: TensorRT (for Nvidia GPUs)
+# nvidia-tensorrt>=8.6.0
+
+# Optional: TFLite
+# tensorflow>=2.13.0

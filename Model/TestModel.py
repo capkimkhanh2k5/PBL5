@@ -1,37 +1,20 @@
 import os
-import json
 import base64
-import numpy as np
-import tensorflow as tf
 from flask import Flask, render_template_string
-from tensorflow.keras import layers, Model, regularizers
-from tensorflow.keras.applications import MobileNetV3Large
-from tensorflow.keras.utils import load_img, img_to_array
-# New import for loading full model
-from tensorflow.keras.models import load_model 
+from ultralytics import YOLO
 from PIL import Image
 import io
 
+# Get the directory where the script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Configuration
-TEST_DIR = "TestImage"
-IMG_SIZE = (288, 288)
-BATCH_SIZE = 64
-NUM_CLASSES = 12
-L2_WEIGHT_DECAY = 1e-5
-# MODEL_PATH = "mobilenetv3.weights.h5" 
-MODEL_PATH = "mobilenetv3_full.keras"
-CLASS_NAMES_PATH = "class_names.json"
+TEST_DIR = os.path.join(SCRIPT_DIR, "TestImage")
+MODEL_PATH = os.path.join(SCRIPT_DIR, "Result_Train/yolo26n_garbage_best.pt")
 
-# Load class names from JSON (fallback to default if not found)
-def load_class_names():
-    if os.path.exists(CLASS_NAMES_PATH):
-        with open(CLASS_NAMES_PATH, 'r') as f:
-            return json.load(f)
-    # Fallback default
-    return ['battery', 'biological', 'brown-glass', 'cardboard', 'clothes', 
-            'green-glass', 'metal', 'paper', 'plastic', 'shoes', 'trash', 'white-glass']
-
-CLASS_NAMES = load_class_names()
+# Class names từ data.yaml
+CLASS_NAMES = ['battery', 'biological', 'cardboard', 'clothes', 'glass', 
+               'metal', 'paper', 'plastic', 'shoes', 'trash']
 
 app = Flask(__name__)
 
@@ -111,6 +94,11 @@ HTML_TEMPLATE = """
             box-shadow: 0 0 15px rgba(255, 71, 87, 0.2);
         }
         
+        .card.unknown {
+            border-color: #ffa502;
+            box-shadow: 0 0 15px rgba(255, 165, 2, 0.2);
+        }
+        
         .card img {
             width: 100%;
             aspect-ratio: 1;
@@ -130,8 +118,15 @@ HTML_TEMPLATE = """
         }
         
         .card .prediction {
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
+            margin-bottom: 4px;
+            color: #00d9ff;
+        }
+        
+        .card .confidence {
+            font-size: 10px;
+            color: #00ff88;
             margin-bottom: 4px;
         }
         
@@ -201,6 +196,7 @@ HTML_TEMPLATE = """
         
         .legend-dot.correct { background: #00ff88; }
         .legend-dot.wrong { background: #ff4757; }
+        .legend-dot.unknown { background: #ffa502; }
         
         @media (max-width: 1200px) {
             .grid { grid-template-columns: repeat(5, 1fr); }
@@ -214,16 +210,19 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="container">
-        <h1>🗑️ Garbage Classification Results</h1>
-        <p class="subtitle">MobileNetV3-Large Model Testing on {{ total }} Random Images</p>
+        <h1>🗑️ YOLO Garbage Classification Results</h1>
+        <p class="subtitle">YOLOv8 Model (yolo26n_garbage_best.pt) Testing on {{ total }} Images</p>
         
         <div class="grid">
             {% for r in results %}
-            <div class="card {{ 'correct' if r.correct else 'wrong' }}">
+            <div class="card {{ 'correct' if r.correct else ('unknown' if r.actual == 'unknown' else 'wrong') }}">
                 <img src="data:image/jpeg;base64,{{ r.image_b64 }}" alt="{{ r.actual }}">
-                <div class="prediction">{{ r.predicted }}</div>
+                <div class="prediction">{{ r.predicted if r.predicted else 'No Detection' }}</div>
+                {% if r.confidence %}
+                <div class="confidence">Conf: {{ "%.1f"|format(r.confidence * 100) }}%</div>
+                {% endif %}
                 <div class="actual">Actual: {{ r.actual }}</div>
-                <div class="status">{{ '✓' if r.correct else '✗' }}</div>
+                <div class="status">{{ '✓' if r.correct else ('?' if r.actual == 'unknown' else '✗') }}</div>
             </div>
             {% endfor %}
         </div>
@@ -233,16 +232,20 @@ HTML_TEMPLATE = """
             <div class="accuracy-score {{ 'high' if accuracy >= 90 else ('medium' if accuracy >= 70 else 'low') }}">
                 {{ "%.1f"|format(accuracy) }}%
             </div>
-            <p class="accuracy-detail">Correct: {{ correct }}/{{ total }} images</p>
+            <p class="accuracy-detail">Correct: {{ correct }}/{{ total_known }} images (excluding unknown)</p>
             
             <div class="legend">
                 <div class="legend-item">
                     <div class="legend-dot correct"></div>
-                    <span>Correct Prediction</span>
+                    <span>Correct</span>
                 </div>
                 <div class="legend-item">
                     <div class="legend-dot wrong"></div>
-                    <span>Wrong Prediction</span>
+                    <span>Wrong</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot unknown"></div>
+                    <span>Unknown Label</span>
                 </div>
             </div>
         </div>
@@ -251,119 +254,153 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# Build + load model by weigh
-# def build_model():
-#     """Rebuild the model architecture to load weights."""
-#     print("Building model architecture...")
-#     base_model = MobileNetV3Large(
-#         include_top=False,
-#         weights=None,  # No need to load Imagenet weights, we load our own
-#         input_shape=IMG_SIZE + (3,),
-#         include_preprocessing=True
-#     )
-#     
-#     # Reconstruct the exact architecture
-#     inputs = layers.Input(shape=IMG_SIZE + (3,))
-#     x = base_model(inputs, training=False)
-#     x = layers.GlobalAveragePooling2D()(x)
-#     x = layers.Dropout(0.2)(x)
-#     outputs = layers.Dense(
-#         NUM_CLASSES, 
-#         activation="softmax",
-#         dtype="float32",
-#         kernel_regularizer=regularizers.l2(L2_WEIGHT_DECAY)
-#     )(x)
-#     
-#     model = Model(inputs, outputs)
-#     return model
-
 def image_to_base64(img_path):
     """Convert image to base64 for embedding in HTML"""
     with Image.open(img_path) as img:
-        img = img.resize((150, 150))
+        img = img.convert('RGB')
+        img = img.resize((200, 200))
         buffer = io.BytesIO()
         img.save(buffer, format='JPEG', quality=85)
         return base64.b64encode(buffer.getvalue()).decode()
 
+def get_actual_class(filename):
+    """Extract actual class from filename"""
+    filename_lower = filename.lower()
+    for cls in CLASS_NAMES:
+        if cls in filename_lower:
+            return cls
+    return "unknown"
+
 def classify_images(model):
-    """Classify all images in TestImage folder"""
+    """Classify all images in TestImage folder using YOLO"""
     if not os.path.exists(TEST_DIR):
+        print(f"⚠️ Test directory '{TEST_DIR}' not found!")
+        print(f"   Creating '{TEST_DIR}' folder...")
+        os.makedirs(TEST_DIR)
+        print(f"   Please add test images to '{TEST_DIR}' folder and refresh.")
         return []
-        
-    images = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(('.jpg', '.jpeg', '.png'))][:40]
+    
+    # Get all image files
+    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
+    images = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(valid_extensions)]
+    
+    if not images:
+        print(f"⚠️ No images found in '{TEST_DIR}' folder!")
+        return []
+    
+    print(f"📷 Found {len(images)} images to test")
     results = []
     
-    for img_name in images:
+    for idx, img_name in enumerate(images):
         img_path = os.path.join(TEST_DIR, img_name)
         
         try:
-            # Load and predict
-            img = load_img(img_path, target_size=IMG_SIZE)
-            img_array = img_to_array(img)
-            img_array = np.expand_dims(img_array, axis=0)
+            # YOLO prediction
+            prediction = model.predict(img_path, verbose=False)
             
-            predictions = model.predict(img_array, verbose=0)
-            predicted_class = CLASS_NAMES[np.argmax(predictions)]
+            # Get the best prediction
+            predicted_class = None
+            confidence = None
             
-            actual_class = "unknown"
-            for cls in CLASS_NAMES:
-                if img_name.lower().startswith(cls):
-                    actual_class = cls
-                    break
+            if len(prediction) > 0 and prediction[0].boxes is not None and len(prediction[0].boxes) > 0:
+                # Get the box with highest confidence
+                boxes = prediction[0].boxes
+                confidences = boxes.conf.cpu().numpy()
+                classes = boxes.cls.cpu().numpy()
+                
+                if len(confidences) > 0:
+                    best_idx = confidences.argmax()
+                    predicted_class = CLASS_NAMES[int(classes[best_idx])]
+                    confidence = float(confidences[best_idx])
+            
+            # For classification models (no boxes, just probs)
+            if predicted_class is None and hasattr(prediction[0], 'probs') and prediction[0].probs is not None:
+                probs = prediction[0].probs
+                top_class_idx = probs.top1
+                predicted_class = CLASS_NAMES[top_class_idx]
+                confidence = float(probs.top1conf)
+            
+            actual_class = get_actual_class(img_name)
+            is_correct = predicted_class == actual_class if actual_class != "unknown" else False
             
             results.append({
                 'image_b64': image_to_base64(img_path),
                 'actual': actual_class,
-                'predicted': predicted_class,
-                'correct': predicted_class == actual_class
+                'predicted': predicted_class if predicted_class else "No Detection",
+                'confidence': confidence,
+                'correct': is_correct
             })
+            
+            status = "✓" if is_correct else ("?" if actual_class == "unknown" else "✗")
+            if confidence:
+                print(f"  [{idx+1}/{len(images)}] {img_name}: {predicted_class} ({confidence*100:.1f}% conf) {status}")
+            else:
+                print(f"  [{idx+1}/{len(images)}] {img_name}: No detection")
+            
         except Exception as e:
-            print(f"Error processing {img_name}: {e}")
+            print(f"❌ Error processing {img_name}: {e}")
+            results.append({
+                'image_b64': image_to_base64(img_path),
+                'actual': get_actual_class(img_name),
+                'predicted': "Error",
+                'confidence': None,
+                'correct': False
+            })
     
     return results
 
 @app.route('/')
 def index():
     results = classify_images(model)
-    correct = sum(1 for r in results if r['correct'])
-    total = len(results)
-    accuracy = (correct / total * 100) if total > 0 else 0
+    
+    # Calculate accuracy (excluding unknown labels)
+    known_results = [r for r in results if r['actual'] != 'unknown']
+    correct = sum(1 for r in known_results if r['correct'])
+    total_known = len(known_results)
+    accuracy = (correct / total_known * 100) if total_known > 0 else 0
     
     return render_template_string(
         HTML_TEMPLATE,
         results=results,
         correct=correct,
-        total=total,
+        total=len(results),
+        total_known=total_known,
         accuracy=accuracy
     )
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("INITIALIZING TEST SERVER")
+    print("🚀 YOLO GARBAGE CLASSIFICATION TEST SERVER")
     print("=" * 50)
     
-    # 1. Load Model (Keras format)
+    # Load YOLO Model
     if os.path.exists(MODEL_PATH):
-        print(f"Loading full model from: {MODEL_PATH}")
+        print(f"\n📦 Loading model: {MODEL_PATH}")
         try:
-            model = load_model(MODEL_PATH)
-            print("✅ Model loaded successfully (Architecture + Weights)")
+            model = YOLO(MODEL_PATH)
+            print("✅ Model loaded successfully!")
+            print(f"   Model type: {model.task}")
+            print(f"   Classes: {CLASS_NAMES}")
         except Exception as e:
             print(f"❌ Error loading model: {e}")
             exit(1)
     else:
         print(f"❌ Error: Model file not found: {MODEL_PATH}")
-        print("Please run ExportModel.py first to generate the .keras file.")
+        print("   Please make sure 'yolo26n.pt' exists in the Model folder.")
         exit(1)
-
-    # 2. Build + Load Model
-    # model = build_model()
-    # if os.path.exists("mobilenetv3.weights.h5"):
-    #    model.load_weights("mobilenetv3.weights.h5")
-        
-    # 3. Start Server
+    
+    # Check test directory
+    if not os.path.exists(TEST_DIR):
+        os.makedirs(TEST_DIR)
+        print(f"\n📁 Created '{TEST_DIR}' folder")
+        print(f"   Please add test images to this folder!")
+    else:
+        images = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        print(f"\n📁 Test folder: {TEST_DIR} ({len(images)} images)")
+    
+    # Start Server
     print("\n" + "=" * 50)
-    print("🚀 SERVER STARTED")
-    print("👉 Open browser: http://localhost:5000")
+    print("🌐 SERVER STARTED")
+    print("👉 Open browser: http://localhost:8888")
     print("=" * 50 + "\n")
-    app.run(debug=False, port=5000)
+    app.run(debug=False, port=8888)
