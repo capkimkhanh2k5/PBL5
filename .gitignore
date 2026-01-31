@@ -24,6 +24,7 @@ checkpoint
 # IDE VS Code
 .idea/
 .vscode/
+.github/
 *.swp
 *.swo
 .DS_Store
