@@ -1,5 +1,7 @@
+
 import os
 import base64
+import time
 from flask import Flask, render_template_string
 from ultralytics import YOLO
 from PIL import Image
@@ -10,258 +12,320 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Configuration
 TEST_DIR = os.path.join(SCRIPT_DIR, "TestImage")
-MODEL_PATH = os.path.join(SCRIPT_DIR, "Result_Train/yolo26n_garbage_best.pt")
+MODEL_PATH = os.path.join(SCRIPT_DIR, "finalModel/best.pt")
 
-# Class names từ data.yaml
+# Class names from finalModel/README.md
 CLASS_NAMES = ['battery', 'biological', 'cardboard', 'clothes', 'glass', 
                'metal', 'paper', 'plastic', 'shoes', 'trash']
 
 app = Flask(__name__)
 
-# HTML Template with modern UI
+# Modern Technical UI Template with Tailwind CSS
 HTML_TEMPLATE = """
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test Model</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <title>S.I.G.M.A. Evaluation Console | Garbage Detection</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Space Grotesk', 'sans-serif'],
+                    },
+                    colors: {
+                        cyber: {
+                            50: '#f0fdfa',
+                            100: '#ccfbf1',
+                            200: '#99f6e4',
+                            300: '#5eead4',
+                            400: '#2dd4bf',
+                            500: '#14b8a6',
+                            600: '#0d9488',
+                            700: '#0f766e',
+                            800: '#115e59',
+                            900: '#134e4a',
+                            950: '#042f2e',
+                        },
+                        neon: {
+                            blue: '#00f3ff',
+                            purple: '#bc13fe',
+                            green: '#0aff00',
+                            red: '#ff003c',
+                        }
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'scan': 'scan 2s linear infinite',
+                    },
+                    keyframes: {
+                        scan: {
+                            '0%': { transform: 'translateY(-100%)' },
+                            '100%': { transform: 'translateY(100%)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
         body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-            min-height: 100vh;
-            padding: 30px;
-            color: #fff;
+            background-color: #050505;
+            background-image: 
+                radial-gradient(circle at 50% 0%, #1a1a2e 0%, transparent 60%),
+                linear-gradient(rgba(0, 243, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 243, 255, 0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+        }
+        .glass-panel {
+            background: rgba(10, 10, 15, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        .text-glow {
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+        }
+        .card-hover:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.15);
+            border-color: rgba(0, 243, 255, 0.4);
         }
         
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
         }
-        
-        h1 {
-            text-align: center;
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            background: linear-gradient(90deg, #00d9ff, #00ff88);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 30px rgba(0, 217, 255, 0.3);
+        ::-webkit-scrollbar-track {
+            background: #0a0a0f; 
         }
-        
-        .subtitle {
-            text-align: center;
-            color: #888;
-            margin-bottom: 30px;
-        }
-        
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(10, 1fr);
-            gap: 12px;
-            margin-bottom: 40px;
-        }
-        
-        .card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            padding: 10px;
-            text-align: center;
-            transition: all 0.3s ease;
-            border: 2px solid transparent;
-        }
-        
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-        }
-        
-        .card.correct {
-            border-color: #00ff88;
-            box-shadow: 0 0 15px rgba(0, 255, 136, 0.2);
-        }
-        
-        .card.wrong {
-            border-color: #ff4757;
-            box-shadow: 0 0 15px rgba(255, 71, 87, 0.2);
-        }
-        
-        .card.unknown {
-            border-color: #ffa502;
-            box-shadow: 0 0 15px rgba(255, 165, 2, 0.2);
-        }
-        
-        .card img {
-            width: 100%;
-            aspect-ratio: 1;
-            object-fit: cover;
-            border-radius: 8px;
-            margin-bottom: 8px;
-        }
-        
-        .card .index {
-            position: absolute;
-            top: 5px;
-            left: 5px;
-            background: rgba(0,0,0,0.6);
-            padding: 2px 6px;
+        ::-webkit-scrollbar-thumb {
+            background: #334155; 
             border-radius: 4px;
-            font-size: 10px;
         }
-        
-        .card .prediction {
-            font-size: 12px;
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: #00d9ff;
-        }
-        
-        .card .confidence {
-            font-size: 10px;
-            color: #00ff88;
-            margin-bottom: 4px;
-        }
-        
-        .card .actual {
-            font-size: 10px;
-            color: #888;
-        }
-        
-        .card .status {
-            font-size: 18px;
-            margin-top: 5px;
-        }
-        
-        .accuracy-box {
-            background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
-            border-radius: 20px;
-            padding: 40px;
-            text-align: center;
-            max-width: 500px;
-            margin: 0 auto;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        
-        .accuracy-box h2 {
-            font-size: 1.2rem;
-            color: #aaa;
-            margin-bottom: 10px;
-            letter-spacing: 3px;
-        }
-        
-        .accuracy-score {
-            font-size: 5rem;
-            font-weight: 700;
-            margin: 10px 0;
-        }
-        
-        .accuracy-score.high { color: #00ff88; }
-        .accuracy-score.medium { color: #ffa502; }
-        .accuracy-score.low { color: #ff4757; }
-        
-        .accuracy-detail {
-            color: #888;
-            font-size: 1.1rem;
-        }
-        
-        .legend {
-            display: flex;
-            justify-content: center;
-            gap: 30px;
-            margin-top: 20px;
-        }
-        
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 14px;
-            color: #aaa;
-        }
-        
-        .legend-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-        
-        .legend-dot.correct { background: #00ff88; }
-        .legend-dot.wrong { background: #ff4757; }
-        .legend-dot.unknown { background: #ffa502; }
-        
-        @media (max-width: 1200px) {
-            .grid { grid-template-columns: repeat(5, 1fr); }
-        }
-        
-        @media (max-width: 768px) {
-            .grid { grid-template-columns: repeat(4, 1fr); }
-            .accuracy-score { font-size: 3rem; }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569; 
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>🗑️ YOLO Garbage Classification Results</h1>
-        <p class="subtitle">YOLOv8 Model (yolo26n_garbage_best.pt) Testing on {{ total }} Images</p>
-        
-        <div class="grid">
-            {% for r in results %}
-            <div class="card {{ 'correct' if r.correct else ('unknown' if r.actual == 'unknown' else 'wrong') }}">
-                <img src="data:image/jpeg;base64,{{ r.image_b64 }}" alt="{{ r.actual }}">
-                <div class="prediction">{{ r.predicted if r.predicted else 'No Detection' }}</div>
-                {% if r.confidence %}
-                <div class="confidence">Conf: {{ "%.1f"|format(r.confidence * 100) }}%</div>
-                {% endif %}
-                <div class="actual">Actual: {{ r.actual }}</div>
-                <div class="status">{{ '✓' if r.correct else ('?' if r.actual == 'unknown' else '✗') }}</div>
+<body class="text-slate-300 min-h-screen p-6">
+
+    <!-- Header -->
+    <header class="max-w-7xl mx-auto mb-10 flex flex-col md:flex-row justify-between items-center gap-6 animate-fade-in-down">
+        <div class="flex items-center gap-4">
+            <div class="relative w-12 h-12 flex items-center justify-center rounded-xl bg-slate-900 border border-cyber-500/30 shadow-[0_0_15px_rgba(45,212,191,0.2)]">
+                <i data-lucide="cpu" class="w-6 h-6 text-cyber-400"></i>
+                <div class="absolute inset-0 rounded-xl bg-cyber-500/10 animate-pulse-slow"></div>
             </div>
-            {% endfor %}
+            <div>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-cyan-200 to-cyan-500 tracking-tight">S.I.G.M.A.</h1>
+                <p class="text-xs font-mono text-cyan-500/70 tracking-widest uppercase">System Evaluation Interface v2.0</p>
+            </div>
         </div>
         
-        <div class="accuracy-box">
-            <h2>MODEL ACCURACY</h2>
-            <div class="accuracy-score {{ 'high' if accuracy >= 90 else ('medium' if accuracy >= 70 else 'low') }}">
-                {{ "%.1f"|format(accuracy) }}%
+        <div class="flex gap-4">
+            <div class="glass-panel px-6 py-3 rounded-lg flex flex-col items-center min-w-[140px]">
+                <span class="text-xs text-slate-500 font-mono uppercase tracking-wider mb-1">Total Images</span>
+                <span class="text-2xl font-bold text-white">{{ total }}</span>
             </div>
-            <p class="accuracy-detail">Correct: {{ correct }}/{{ total_known }} images (excluding unknown)</p>
-            
-            <div class="legend">
-                <div class="legend-item">
-                    <div class="legend-dot correct"></div>
-                    <span>Correct</span>
+            <div class="glass-panel px-6 py-3 rounded-lg flex flex-col items-center min-w-[140px] relative overflow-hidden">
+                <span class="text-xs text-slate-500 font-mono uppercase tracking-wider mb-1">Accuracy</span>
+                <span class="text-2xl font-bold {{ 'text-neon-green' if accuracy >= 90 else ('text-yellow-400' if accuracy >= 70 else 'text-neon-red') }} text-glow">
+                    {{ "%.1f"|format(accuracy) }}%
+                </span>
+                
+                <!-- Progress bar background -->
+                <div class="absolute bottom-0 left-0 h-1 bg-slate-800 w-full">
+                    <div class="h-full {{ 'bg-neon-green' if accuracy >= 90 else ('bg-yellow-400' if accuracy >= 70 else 'bg-neon-red') }}" style="width: {{ accuracy }}%"></div>
                 </div>
-                <div class="legend-item">
-                    <div class="legend-dot wrong"></div>
-                    <span>Wrong</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-dot unknown"></div>
-                    <span>Unknown Label</span>
-                </div>
+            </div>
+             <div class="glass-panel px-6 py-3 rounded-lg flex flex-col items-center min-w-[140px]">
+                <span class="text-xs text-slate-500 font-mono uppercase tracking-wider mb-1">Latency</span>
+                <span class="text-2xl font-bold text-cyan-300">{{ "%.0f"|format(avg_time * 1000) }}<span class="text-sm font-normal text-slate-500 ml-1">ms</span></span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Controls & Legend -->
+    <div class="max-w-7xl mx-auto mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
+        
+        <!-- Filter Tabs -->
+        <div class="glass-panel p-1.5 rounded-lg flex gap-1" x-data="{ filter: 'all' }">
+            <button onclick="filterAnalysis('all')" id="btn-all" class="px-4 py-2 rounded-md text-sm font-medium transition-all bg-white/10 text-white shadow-sm border border-white/5">
+                All Results
+            </button>
+            <button onclick="filterAnalysis('correct')" id="btn-correct" class="px-4 py-2 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
+                <span class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-neon-green shadow-[0_0_8px_#0aff00]"></span> Correct
+                </span>
+            </button>
+            <button onclick="filterAnalysis('wrong')" id="btn-wrong" class="px-4 py-2 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
+                <span class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-neon-red shadow-[0_0_8px_#ff003c]"></span> Errors
+                </span>
+            </button>
+        </div>
+
+        <!-- Legend -->
+        <div class="flex items-center gap-6 text-xs text-slate-500 font-mono">
+            <div class="flex items-center gap-2">
+                <div class="w-2 h-2 bg-neon-green rounded-full shadow-[0_0_5px_#0aff00]"></div> Match
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-2 h-2 bg-neon-red rounded-full shadow-[0_0_5px_#ff003c]"></div> Mismatch
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-2 h-2 bg-yellow-500 rounded-full shadow-[0_0_5px_#eab308]"></div> Unknown Label
             </div>
         </div>
     </div>
+
+    <!-- Grid -->
+    <div class="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5 pb-20">
+        {% for r in results %}
+        <div class="card-hover glass-panel rounded-xl overflow-hidden transition-all duration-300 group relative result-card" data-status="{{ 'correct' if r.correct else ('unknown' if r.actual == 'unknown' else 'wrong') }}">
+            
+            <!-- Image Container -->
+            <div class="relative aspect-square overflow-hidden bg-slate-900">
+                <img src="data:image/jpeg;base64,{{ r.image_b64 }}" alt="{{ r.actual }}" 
+                     class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110">
+                
+                <!-- Overlay Gradient -->
+                <div class="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-transparent to-transparent opacity-60"></div>
+                
+                <!-- Status Badge -->
+                <div class="absolute top-3 right-3">
+                    {% if r.correct %}
+                        <div class="bg-neon-green/20 backdrop-blur-md border border-neon-green/50 text-neon-green p-1.5 rounded-lg shadow-[0_0_10px_rgba(10,255,0,0.2)]">
+                            <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                        </div>
+                    {% elif r.actual == 'unknown' %}
+                        <div class="bg-yellow-500/20 backdrop-blur-md border border-yellow-500/50 text-yellow-500 p-1.5 rounded-lg">
+                            <i data-lucide="help-circle" class="w-3.5 h-3.5"></i>
+                        </div>
+                    {% else %}
+                        <div class="bg-neon-red/20 backdrop-blur-md border border-neon-red/50 text-neon-red p-1.5 rounded-lg shadow-[0_0_10px_rgba(255,0,60,0.2)]">
+                            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <!-- Confidence Badge -->
+                {% if r.confidence %}
+                <div class="absolute top-3 left-3">
+                    <div class="px-2 py-1 rounded bg-black/60 backdrop-blur-sm text-[10px] font-mono text-cyan-300 border border-cyan-500/30">
+                        {{ "%.1f"|format(r.confidence * 100) }}%
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Content -->
+            <div class="p-4 relative">
+                <!-- Scan Line Effect (Hover) -->
+                <div class="absolute top-0 left-0 w-full h-[1px] bg-cyan-400/50 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
+
+                <div class="mb-3">
+                    <p class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-0.5">Prediction</p>
+                    <div class="text-base font-bold text-white truncate flex items-center gap-2">
+                        {{ r.predicted if r.predicted else 'No Detection' }}
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between pt-3 border-t border-white/5">
+                    <div class="flex flex-col">
+                        <span class="text-[9px] text-slate-500 uppercase tracking-wider">Actual</span>
+                        <span class="text-xs font-medium {{ 'text-slate-300' if r.correct else ('text-yellow-400' if r.actual == 'unknown' else 'text-red-400') }} truncate max-w-[100px]" title="{{ r.actual }}">
+                            {{ r.actual }}
+                        </span>
+                    </div>
+                    <div class="text-[9px] font-mono text-slate-600">
+                        #{{ loop.index }}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Glow Effect on wrong predictions -->
+            {% if not r.correct and r.actual != 'unknown' %}
+            <div class="absolute inset-0 border border-neon-red/30 pointer-events-none rounded-xl"></div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Empty State -->
+    {% if not results %}
+    <div class="max-w-2xl mx-auto text-center py-20">
+        <div class="w-20 h-20 mx-auto bg-slate-800/50 rounded-full flex items-center justify-center mb-6">
+            <i data-lucide="image-off" class="w-10 h-10 text-slate-600"></i>
+        </div>
+        <h3 class="text-xl font-bold text-white mb-2">No Images Found</h3>
+        <p class="text-slate-400">Add images to the <code class="bg-slate-800 px-2 py-1 rounded text-cyan-400">TestImage</code> folder to begin analysis.</p>
+    </div>
+    {% endif %}
+
+    <footer class="max-w-7xl mx-auto text-center text-slate-600 text-xs py-8 border-t border-slate-800/50">
+        <p>POWERED BY YOLOv8 &bull; FINAL ULTIMATE MODEL</p>
+    </footer>
+
+    <script>
+        // Init Icons
+        lucide.createIcons();
+
+        // Filter Logic
+        function filterAnalysis(status) {
+            const cards = document.querySelectorAll('.result-card');
+            const buttons = ['all', 'correct', 'wrong'];
+            
+            // Update Buttons
+            buttons.forEach(btn => {
+                const el = document.getElementById('btn-' + btn);
+                if (btn === status) {
+                    el.classList.remove('text-slate-400', 'hover:text-white', 'hover:bg-white/5', 'bg-transparent');
+                    el.classList.add('bg-white/10', 'text-white', 'shadow-sm', 'border', 'border-white/5');
+                } else {
+                    el.classList.add('text-slate-400', 'hover:text-white', 'hover:bg-white/5', 'bg-transparent');
+                    el.classList.remove('bg-white/10', 'text-white', 'shadow-sm', 'border', 'border-white/5');
+                }
+            });
+
+            // Filter Grid
+            cards.forEach(card => {
+                const cardStatus = card.getAttribute('data-status');
+                if (status === 'all') {
+                    card.style.display = 'block';
+                } else if (status === 'correct') {
+                    card.style.display = cardStatus === 'correct' ? 'block' : 'none';
+                } else if (status === 'wrong') {
+                    card.style.display = (cardStatus === 'wrong' || cardStatus === 'unknown') ? 'block' : 'none';
+                }
+            });
+        }
+    </script>
 </body>
 </html>
 """
 
 def image_to_base64(img_path):
     """Convert image to base64 for embedding in HTML"""
-    with Image.open(img_path) as img:
-        img = img.convert('RGB')
-        img = img.resize((200, 200))
-        buffer = io.BytesIO()
-        img.save(buffer, format='JPEG', quality=85)
-        return base64.b64encode(buffer.getvalue()).decode()
+    try:
+        with Image.open(img_path) as img:
+            img = img.convert('RGB')
+            # Resize for faster loading, but keep decent quality
+            img.thumbnail((400, 400)) 
+            buffer = io.BytesIO()
+            img.save(buffer, format='JPEG', quality=85)
+            return base64.b64encode(buffer.getvalue()).decode()
+    except Exception as e:
+        print(f"Error converting image {img_path}: {e}")
+        return ""
 
 def get_actual_class(filename):
     """Extract actual class from filename"""
@@ -278,7 +342,7 @@ def classify_images(model):
         print(f"   Creating '{TEST_DIR}' folder...")
         os.makedirs(TEST_DIR)
         print(f"   Please add test images to '{TEST_DIR}' folder and refresh.")
-        return []
+        return [], 0
     
     # Get all image files
     valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
@@ -286,10 +350,12 @@ def classify_images(model):
     
     if not images:
         print(f"⚠️ No images found in '{TEST_DIR}' folder!")
-        return []
+        return [], 0
     
     print(f"📷 Found {len(images)} images to test")
     results = []
+    
+    start_time = time.time()
     
     for idx, img_name in enumerate(images):
         img_path = os.path.join(TEST_DIR, img_name)
@@ -302,23 +368,24 @@ def classify_images(model):
             predicted_class = None
             confidence = None
             
-            if len(prediction) > 0 and prediction[0].boxes is not None and len(prediction[0].boxes) > 0:
-                # Get the box with highest confidence
-                boxes = prediction[0].boxes
-                confidences = boxes.conf.cpu().numpy()
-                classes = boxes.cls.cpu().numpy()
-                
-                if len(confidences) > 0:
-                    best_idx = confidences.argmax()
-                    predicted_class = CLASS_NAMES[int(classes[best_idx])]
-                    confidence = float(confidences[best_idx])
-            
-            # For classification models (no boxes, just probs)
-            if predicted_class is None and hasattr(prediction[0], 'probs') and prediction[0].probs is not None:
-                probs = prediction[0].probs
-                top_class_idx = probs.top1
-                predicted_class = CLASS_NAMES[top_class_idx]
-                confidence = float(probs.top1conf)
+            if len(prediction) > 0:
+                # Check for boxes (detection)
+                if prediction[0].boxes is not None and len(prediction[0].boxes) > 0:
+                    boxes = prediction[0].boxes
+                    confidences = boxes.conf.cpu().numpy()
+                    classes = boxes.cls.cpu().numpy()
+                    
+                    if len(confidences) > 0:
+                        best_idx = confidences.argmax()
+                        predicted_class = CLASS_NAMES[int(classes[best_idx])]
+                        confidence = float(confidences[best_idx])
+
+                # Check for probs (classification)
+                elif hasattr(prediction[0], 'probs') and prediction[0].probs is not None:
+                    probs = prediction[0].probs
+                    top_class_idx = probs.top1
+                    predicted_class = CLASS_NAMES[top_class_idx]
+                    confidence = float(probs.top1conf)
             
             actual_class = get_actual_class(img_name)
             is_correct = predicted_class == actual_class if actual_class != "unknown" else False
@@ -331,11 +398,9 @@ def classify_images(model):
                 'correct': is_correct
             })
             
-            status = "✓" if is_correct else ("?" if actual_class == "unknown" else "✗")
-            if confidence:
-                print(f"  [{idx+1}/{len(images)}] {img_name}: {predicted_class} ({confidence*100:.1f}% conf) {status}")
-            else:
-                print(f"  [{idx+1}/{len(images)}] {img_name}: No detection")
+            status_icon = "✓" if is_correct else ("?" if actual_class == "unknown" else "✗")
+            conf_str = f"({confidence*100:.1f}%)" if confidence else ""
+            print(f"  [{idx+1}/{len(images)}] {img_name}: {predicted_class} {conf_str} {status_icon}")
             
         except Exception as e:
             print(f"❌ Error processing {img_name}: {e}")
@@ -346,12 +411,15 @@ def classify_images(model):
                 'confidence': None,
                 'correct': False
             })
+            
+    total_time = time.time() - start_time
+    avg_time = total_time / len(images) if images else 0
     
-    return results
+    return results, avg_time
 
 @app.route('/')
 def index():
-    results = classify_images(model)
+    results, avg_time = classify_images(model)
     
     # Calculate accuracy (excluding unknown labels)
     known_results = [r for r in results if r['actual'] != 'unknown']
@@ -365,42 +433,44 @@ def index():
         correct=correct,
         total=len(results),
         total_known=total_known,
-        accuracy=accuracy
+        accuracy=accuracy,
+        avg_time=avg_time
     )
 
 if __name__ == "__main__":
-    print("=" * 50)
-    print("🚀 YOLO GARBAGE CLASSIFICATION TEST SERVER")
-    print("=" * 50)
+    print("=" * 60)
+    print("🚀 S.I.G.M.A. EVALUATION CONSOLE STARTING...")
+    print("=" * 60)
     
     # Load YOLO Model
     if os.path.exists(MODEL_PATH):
-        print(f"\n📦 Loading model: {MODEL_PATH}")
+        print(f"\n📦 Loading Neural Core: {MODEL_PATH}")
         try:
             model = YOLO(MODEL_PATH)
-            print("✅ Model loaded successfully!")
-            print(f"   Model type: {model.task}")
-            print(f"   Classes: {CLASS_NAMES}")
+            print("✅ Neural Core Online")
+            print(f"   Task: {model.task}")
+            print(f"   Classes: {len(CLASS_NAMES)}")
         except Exception as e:
-            print(f"❌ Error loading model: {e}")
+            print(f"❌ Core Initialization Failed: {e}")
             exit(1)
     else:
-        print(f"❌ Error: Model file not found: {MODEL_PATH}")
-        print("   Please make sure 'yolo26n.pt' exists in the Model folder.")
+        print(f"❌ Critical Error: Model file missing at {MODEL_PATH}")
+        print("   Please ensure 'best.pt' is in the finalModel directory.")
         exit(1)
     
     # Check test directory
     if not os.path.exists(TEST_DIR):
         os.makedirs(TEST_DIR)
-        print(f"\n📁 Created '{TEST_DIR}' folder")
-        print(f"   Please add test images to this folder!")
+        print(f"\n📁 Initialized Data Buffer: {TEST_DIR}")
+        print(f"   -> Waiting for input data...")
     else:
-        images = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-        print(f"\n📁 Test folder: {TEST_DIR} ({len(images)} images)")
+        images = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))]
+        print(f"\n📁 Data Buffer Ready: {TEST_DIR}")
+        print(f"   -> {len(images)} samples detected")
     
     # Start Server
-    print("\n" + "=" * 50)
-    print("🌐 SERVER STARTED")
-    print("👉 Open browser: http://localhost:8888")
-    print("=" * 50 + "\n")
-    app.run(debug=False, port=8888)
+    print("\n" + "=" * 60)
+    print("🌐 INTERFACE ONLINE")
+    print("👉 Access Console: http://localhost:8888")
+    print("=" * 60 + "\n")
+    app.run(debug=True, port=8888, use_reloader=False)
