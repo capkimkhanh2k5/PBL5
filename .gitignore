@@ -25,6 +25,8 @@ checkpoint
 .idea/
 .vscode/
 .github/
+.agent/
+.postman/
 *.swp
 *.swo
 .DS_Store
@@ -42,4 +44,4 @@ TestImage/
 
 # Zip 
 *.zip
-docs
+docs\n# Firebase Secret Key\nserviceAccountKey.json\nbackend/target/\n
