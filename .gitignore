@@ -44,4 +44,8 @@ TestImage/
 
 # Zip 
 *.zip
-docs\n# Firebase Secret Key\nserviceAccountKey.json\nbackend/target/\n
+docs
+
+# Firebase Secret Key
+serviceAccountKey.json
+backend/target/
