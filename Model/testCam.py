@@ -1,4 +1,3 @@
-
 import os
 import base64
 import json
@@ -18,6 +17,23 @@ MODEL_PATH = os.path.join(SCRIPT_DIR, "trainModel/model.pth")
 CLASS_NAMES = []
 IMG_SIZE = 720
 
+# Waste category mapping
+WASTE_CATEGORIES = {
+    'battery':    {'category': 'Hazardous',      'icon': 'alert-triangle', 'color': '#FF003C', 'bg': 'rgba(255,0,60,0.15)',  'border': 'rgba(255,0,60,0.4)'},
+    'biological': {'category': 'Organic',         'icon': 'leaf',           'color': '#0AFF00', 'bg': 'rgba(10,255,0,0.15)',  'border': 'rgba(10,255,0,0.4)'},
+    'cardboard':  {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)','border': 'rgba(59,130,246,0.4)'},
+    'clothes':    {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
+    'glass':      {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)','border': 'rgba(59,130,246,0.4)'},
+    'metal':      {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)','border': 'rgba(59,130,246,0.4)'},
+    'paper':      {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)','border': 'rgba(59,130,246,0.4)'},
+    'plastic':    {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)','border': 'rgba(59,130,246,0.4)'},
+    'shoes':      {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
+    'trash':      {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
+}
+
+def get_waste_category(class_name):
+    return WASTE_CATEGORIES.get(class_name, {'category': 'Unknown', 'icon': 'help-circle', 'color': '#64748B', 'bg': 'rgba(100,116,139,0.15)', 'border': 'rgba(100,116,139,0.4)'})
+
 app = Flask(__name__)
 
 
@@ -36,14 +52,14 @@ class WasteDetectorModel(nn.Module):
             nn.Dropout(p=0.3),
             nn.Linear(512, 256),
             nn.Hardswish(),
-            nn.Dropout(p=0.3),
+            nn.Dropout(p=0.2),
             nn.Linear(256, num_classes)
         )
         
         self.objectness = nn.Sequential(
             nn.Linear(960, 128),
             nn.ReLU(),
-            nn.Dropout(p=0.3),
+            nn.Dropout(p=0.2),
             nn.Linear(128, 1)
         )
     
@@ -72,7 +88,13 @@ def load_model(model_path):
     model = WasteDetectorModel(num_classes=num_classes)
     
     state_dict = checkpoint.get('model_state', checkpoint.get('model_state_dict', checkpoint))
-    model.load_state_dict(state_dict, strict=False)
+    
+    try:
+        model.load_state_dict(state_dict, strict=True)
+    except RuntimeError as e:
+        print(f"  Warning: Strict loading failed, using loose loading: {e}")
+        model.load_state_dict(state_dict, strict=False)
+    
     model.eval()
     
     val_acc = checkpoint.get('val_acc', 'N/A')
@@ -81,12 +103,16 @@ def load_model(model_path):
     return model
 
 
+_transform_cache = {}
+
 def get_transform(img_size):
-    return transforms.Compose([
-        transforms.Resize((img_size, img_size)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
+    if img_size not in _transform_cache:
+        _transform_cache[img_size] = transforms.Compose([
+            transforms.Resize((img_size, img_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+    return _transform_cache[img_size]
 
 
 def generate_gradcam(model, input_tensor, class_idx):
@@ -155,28 +181,39 @@ def get_bounding_box_from_cam(cam, original_size, threshold=0.3):
 def draw_detection(img_cv2, bbox, class_name, confidence, obj_score):
     """Draw bounding box and labels on image"""
     result = img_cv2.copy()
+    h_img, w_img = result.shape[:2]
+    
+    color = (0, 255, 100) if confidence > 0.8 else ((0, 200, 255) if confidence > 0.5 else (0, 100, 255))
+    font = cv2.FONT_HERSHEY_SIMPLEX
     
     if bbox is not None:
         x, y, w, h = bbox
-        color = (0, 255, 100) if confidence > 0.8 else ((0, 200, 255) if confidence > 0.5 else (0, 100, 255))
-        
         cv2.rectangle(result, (x, y), (x + w, y + h), color, 2)
         
         label = f"{class_name}: {confidence*100:.1f}%"
-        font = cv2.FONT_HERSHEY_SIMPLEX
         (text_w, text_h), _ = cv2.getTextSize(label, font, 0.7, 2)
         cv2.rectangle(result, (x, y - text_h - 10), (x + text_w + 8, y), color, -1)
         cv2.putText(result, label, (x + 4, y - 5), font, 0.7, (0, 0, 0), 2)
     
+    label_top = f"{class_name}: {confidence*100:.1f}%"
+    (tw, th), _ = cv2.getTextSize(label_top, font, 1.0, 2)
+    cv2.rectangle(result, (8, 8), (tw + 20, th + 20), (0, 0, 0), -1)
+    cv2.rectangle(result, (8, 8), (tw + 20, th + 20), color, 2)
+    cv2.putText(result, label_top, (14, th + 14), font, 1.0, color, 2)
+    
+    bar_text = f"Object: {obj_score*100:.0f}%"
+    (btw, bth), _ = cv2.getTextSize(bar_text, font, 0.6, 1)
+    cv2.putText(result, bar_text, (12, h_img - 12), font, 0.6, (200, 200, 200), 1)
+    
     return result
 
 
-def classify_frame(model, pil_img):
+def classify_frame(model, pil_img, skip_gradcam=False):
     """Classify a single image frame from camera"""
+    import time
     transform = get_transform(IMG_SIZE)
     original_size = pil_img.size
     
-    # Inference
     input_tensor = transform(pil_img).unsqueeze(0)
     with torch.no_grad():
         class_logits, obj_score_raw, _ = model(input_tensor)
@@ -187,7 +224,6 @@ def classify_frame(model, pil_img):
     confidence_val = confidence.item()
     obj_score = torch.sigmoid(obj_score_raw).item()
     
-    # Get top 5 predictions
     top5_probs, top5_indices = torch.topk(probabilities, min(5, len(CLASS_NAMES)), dim=1)
     top5 = []
     for i in range(top5_probs.shape[1]):
@@ -196,24 +232,28 @@ def classify_frame(model, pil_img):
             'confidence': round(top5_probs[0][i].item() * 100, 1)
         })
     
-    # GradCAM + Bounding Box
-    input_for_cam = transform(pil_img).unsqueeze(0)
-    cam = generate_gradcam(model, input_for_cam, predicted_idx.item())
-    
     bbox = None
-    if cam is not None and obj_score > 0.3:
-        bbox = get_bounding_box_from_cam(cam, original_size)
+    if not skip_gradcam:
+        input_for_cam = transform(pil_img).unsqueeze(0)
+        
+        start_cam = time.time()
+        cam = generate_gradcam(model, input_for_cam, predicted_idx.item())
+        cam_taken = (time.time() - start_cam) * 1000
+        print(f"[CAM] GradCAM hoàn thành sau {cam_taken:.1f}ms (skip_gradcam={skip_gradcam})")
+        
+        if cam is not None and obj_score > 0.05:
+            bbox = get_bounding_box_from_cam(cam, original_size)
     
-    # Draw detection on image
     img_cv2 = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
     result_img = draw_detection(img_cv2, bbox, predicted_class, confidence_val, obj_score)
     
-    # Convert result to base64
     result_rgb = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
     result_pil = Image.fromarray(result_rgb)
     buffer = io.BytesIO()
     result_pil.save(buffer, format='JPEG', quality=90)
     result_b64 = base64.b64encode(buffer.getvalue()).decode()
+    
+    cat_info = get_waste_category(predicted_class)
     
     return {
         'predicted_class': predicted_class,
@@ -221,7 +261,12 @@ def classify_frame(model, pil_img):
         'obj_score': round(obj_score * 100, 1),
         'top5': top5,
         'result_image': result_b64,
-        'has_bbox': bbox is not None
+        'has_bbox': bbox is not None,
+        'category': cat_info['category'],
+        'cat_icon': cat_info['icon'],
+        'cat_color': cat_info['color'],
+        'cat_bg': cat_info['bg'],
+        'cat_border': cat_info['border'],
     }
 
 
@@ -273,7 +318,6 @@ HTML_TEMPLATE = """
             background-size: 100%, 100%, 60px 60px, 60px 60px;
         }
 
-        /* Scrollbar */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: var(--bg-primary); }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
@@ -284,7 +328,6 @@ HTML_TEMPLATE = """
             padding: 24px;
         }
 
-        /* Header */
         .header {
             display: flex;
             align-items: center;
@@ -377,7 +420,6 @@ HTML_TEMPLATE = """
             50% { opacity: 0.4; }
         }
 
-        /* Main Layout */
         .main-content {
             display: grid;
             grid-template-columns: 1fr 420px;
@@ -385,7 +427,6 @@ HTML_TEMPLATE = """
             min-height: calc(100vh - 160px);
         }
 
-        /* Camera Panel */
         .camera-panel {
             background: var(--bg-card);
             border-radius: 16px;
@@ -425,14 +466,22 @@ HTML_TEMPLATE = """
             min-height: 480px;
         }
 
-        .camera-viewport video,
-        .camera-viewport img {
+        .camera-viewport video {
             width: 100%;
             height: 100%;
             object-fit: contain;
         }
 
-        /* Scan overlay animation */
+        .camera-viewport img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            z-index: 2;
+        }
+
         .scan-line {
             position: absolute;
             top: 0;
@@ -457,7 +506,6 @@ HTML_TEMPLATE = """
             100% { top: 100%; opacity: 0; }
         }
 
-        /* Corner brackets overlay */
         .corner-brackets {
             position: absolute;
             inset: 20px;
@@ -529,7 +577,6 @@ HTML_TEMPLATE = """
             margin-bottom: 16px;
         }
 
-        /* Camera Controls */
         .camera-controls {
             padding: 16px 20px;
             border-top: 1px solid var(--border);
@@ -539,67 +586,6 @@ HTML_TEMPLATE = """
             gap: 16px;
         }
 
-        .capture-btn {
-            width: 64px;
-            height: 64px;
-            border-radius: 50%;
-            border: 3px solid var(--neon-cyan);
-            background: rgba(0, 243, 255, 0.08);
-            cursor: pointer;
-            position: relative;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .capture-btn:hover {
-            background: rgba(0, 243, 255, 0.2);
-            box-shadow: 0 0 30px rgba(0, 243, 255, 0.3);
-            transform: scale(1.05);
-        }
-
-        .capture-btn:active {
-            transform: scale(0.95);
-        }
-
-        .capture-btn::after {
-            content: '';
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--neon-cyan), var(--accent-blue));
-            transition: all 0.2s ease;
-        }
-
-        .capture-btn.capturing::after {
-            animation: capture-flash 0.3s ease;
-        }
-
-        @keyframes capture-flash {
-            0% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(0.8); }
-            100% { opacity: 1; transform: scale(1); }
-        }
-
-        .key-hint {
-            font-size: 0.7rem;
-            color: var(--text-muted);
-            letter-spacing: 1px;
-        }
-
-        .key-hint kbd {
-            display: inline-block;
-            padding: 2px 8px;
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 4px;
-            font-family: var(--font-display);
-            font-size: 0.65rem;
-            margin: 0 2px;
-        }
-
-        /* Result Panel */
         .result-panel {
             display: flex;
             flex-direction: column;
@@ -669,7 +655,25 @@ HTML_TEMPLATE = """
             text-transform: uppercase;
         }
 
-        /* Top 5 Predictions */
+        .category-badge {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin: 12px auto 0;
+            width: fit-content;
+        }
+
+        .category-badge.visible {
+            display: flex;
+        }
+
         .top5-card {
             background: var(--bg-card);
             border-radius: 16px;
@@ -731,7 +735,6 @@ HTML_TEMPLATE = """
             text-align: right;
         }
 
-        /* History */
         .history-card {
             background: var(--bg-card);
             border-radius: 16px;
@@ -804,7 +807,6 @@ HTML_TEMPLATE = """
             font-size: 0.8rem;
         }
 
-        /* Processing overlay */
         .processing-overlay {
             position: absolute;
             inset: 0;
@@ -841,7 +843,112 @@ HTML_TEMPLATE = """
             color: var(--neon-cyan);
         }
 
-        /* Responsive */
+        .realtime-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.7rem;
+            font-family: var(--font-display);
+            letter-spacing: 1px;
+            color: var(--text-muted);
+        }
+
+        .realtime-indicator.scanning {
+            color: var(--neon-green);
+        }
+
+        .realtime-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .realtime-indicator.scanning .realtime-dot {
+            background: var(--neon-red);
+            box-shadow: 0 0 8px var(--neon-red);
+            animation: pulse-dot 1s ease-in-out infinite;
+        }
+
+        .scan-toggle-btn {
+            padding: 10px 24px;
+            border-radius: 10px;
+            border: 2px solid var(--neon-cyan);
+            background: rgba(0, 243, 255, 0.08);
+            color: var(--neon-cyan);
+            font-family: var(--font-display);
+            font-size: 0.75rem;
+            letter-spacing: 2px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .scan-toggle-btn:hover {
+            background: rgba(0, 243, 255, 0.15);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
+        }
+
+        .scan-toggle-btn.active {
+            border-color: var(--neon-red);
+            color: var(--neon-red);
+            background: rgba(255, 0, 60, 0.08);
+        }
+
+        .scan-toggle-btn.active:hover {
+            background: rgba(255, 0, 60, 0.15);
+            box-shadow: 0 0 20px rgba(255, 0, 60, 0.2);
+        }
+
+        .fps-counter {
+            font-family: var(--font-display);
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+        }
+
+        .camera-select {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-family: var(--font-body);
+            font-size: 0.7rem;
+            cursor: pointer;
+            outline: none;
+            max-width: 220px;
+        }
+
+        .camera-select:focus {
+            border-color: var(--neon-cyan);
+        }
+
+        .camera-select option {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        /* Debug log */
+        #debugLog {
+            position: fixed;
+            bottom: 12px;
+            left: 12px;
+            background: rgba(0,0,0,0.85);
+            color: #0AFF00;
+            font-family: monospace;
+            font-size: 0.65rem;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(10,255,0,0.2);
+            max-width: 380px;
+            z-index: 9999;
+            pointer-events: none;
+            display: none;
+        }
+
         @media (max-width: 900px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -866,7 +973,6 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
         <header class="header">
             <div class="logo-section">
                 <div class="logo-icon">
@@ -893,21 +999,30 @@ HTML_TEMPLATE = """
             </div>
         </header>
 
-        <!-- Main Content -->
         <div class="main-content">
-            <!-- Camera Feed -->
             <div class="camera-panel">
                 <div class="panel-header">
                     <div class="panel-title">
                         <i data-lucide="video" style="width:16px;height:16px;color:var(--neon-cyan)"></i>
                         LIVE FEED
                     </div>
-                    <div class="panel-title" style="color:var(--text-muted);font-family:var(--font-body);letter-spacing:0;font-size:0.75rem" id="resolution">--</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                        <input type="color" id="bgColorPicker" value="#000000" title="Chỉnh màu nền" style="width:24px;height:24px;border:none;border-radius:4px;cursor:pointer;background:transparent;padding:0;">
+                        <select class="camera-select" id="cameraSelect" onchange="switchCamera(this.value)">
+                            <option value="">Loading cameras...</option>
+                        </select>
+                        <div class="panel-title" style="color:var(--text-muted);font-family:var(--font-body);letter-spacing:0;font-size:0.75rem" id="resolution">--</div>
+                    </div>
                 </div>
                 <div class="camera-viewport" id="viewport">
                     <video id="cameraFeed" autoplay playsinline muted style="display:none"></video>
                     <img id="resultImage" style="display:none" alt="Detection result">
                     <canvas id="captureCanvas" style="display:none"></canvas>
+                    
+                    <div id="liveOverlay" style="position:absolute;top:12px;left:12px;z-index:15;display:none">
+                        <div id="liveLabel" style="background:rgba(0,0,0,0.8);padding:8px 16px;border-radius:8px;border:2px solid var(--neon-green);font-family:var(--font-display);font-size:1rem;letter-spacing:1px;color:var(--neon-green);text-transform:uppercase">--</div>
+                        <div id="liveConfidence" style="background:rgba(0,0,0,0.8);padding:4px 16px;border-radius:0 0 8px 8px;font-family:var(--font-display);font-size:0.75rem;color:var(--text-secondary);text-align:center">--</div>
+                    </div>
                     
                     <div class="corner-brackets"></div>
                     <div class="corner-brackets-bottom"></div>
@@ -925,19 +1040,19 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 <div class="camera-controls">
-                    <div class="key-hint">Press <kbd>SPACE</kbd> to capture</div>
-                    <button class="capture-btn" id="captureBtn" onclick="captureFrame()" title="Capture Frame">
+                    <div class="realtime-indicator" id="realtimeIndicator">
+                        <span class="realtime-dot"></span>
+                        <span id="realtimeStatus">STANDBY</span>
+                    </div>
+                    <button class="scan-toggle-btn" id="scanToggleBtn" onclick="toggleScanning()">
+                        <i data-lucide="scan" style="width:16px;height:16px"></i>
+                        <span id="scanBtnText">START SCAN</span>
                     </button>
-                    <button class="badge" id="toggleViewBtn" onclick="toggleView()" style="cursor:pointer;display:none">
-                        <i data-lucide="eye" style="width:14px;height:14px;color:var(--neon-cyan)"></i>
-                        <span>Live View</span>
-                    </button>
+                    <span class="fps-counter" id="fpsCounter">-- fps</span>
                 </div>
             </div>
 
-            <!-- Results Sidebar -->
             <div class="result-panel">
-                <!-- Main Result -->
                 <div class="result-card" id="resultCard">
                     <div class="panel-header">
                         <div class="panel-title">
@@ -954,10 +1069,13 @@ HTML_TEMPLATE = """
                         <div class="result-class" id="resultClass">--</div>
                         <div class="result-confidence" id="resultConfidence">--</div>
                         <div class="result-label">CONFIDENCE</div>
+                        <div class="category-badge" id="categoryBadge">
+                            <i id="categoryIcon" style="width:14px;height:14px"></i>
+                            <span id="categoryText">--</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Top 5 -->
                 <div class="top5-card" id="top5Card" style="display:none">
                     <div class="panel-header">
                         <div class="panel-title">
@@ -968,7 +1086,6 @@ HTML_TEMPLATE = """
                     <div class="top5-list" id="top5List"></div>
                 </div>
 
-                <!-- History -->
                 <div class="history-card">
                     <div class="panel-header">
                         <div class="panel-title">
@@ -986,54 +1103,92 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <!-- Debug log (toggle with D key) -->
+    <div id="debugLog"></div>
+
     <script>
-        // Initialize Lucide icons
         lucide.createIcons();
 
-        // State
+        // ─── State ───────────────────────────────────────────────────────────
         let stream = null;
         let isProcessing = false;
-        let showingResult = false;
-        let scanHistory = [];
+        let scanInterval = null;
+        let isScanning = false;
         let scanCount = 0;
+        let lastFpsTime = Date.now();
+        let frameCount = 0;
+        let debugVisible = false;
 
-        // DOM Elements
-        const video = document.getElementById('cameraFeed');
-        const canvas = document.getElementById('captureCanvas');
+        // ─── DOM ─────────────────────────────────────────────────────────────
+        const video      = document.getElementById('cameraFeed');
+        const canvas     = document.getElementById('captureCanvas');
         const resultImage = document.getElementById('resultImage');
         const placeholder = document.getElementById('cameraPlaceholder');
-        const processingOverlay = document.getElementById('processingOverlay');
-        const scanLine = document.getElementById('scanLine');
-        const captureBtn = document.getElementById('captureBtn');
-        const toggleViewBtn = document.getElementById('toggleViewBtn');
+        const scanLine   = document.getElementById('scanLine');
+        const debugLog   = document.getElementById('debugLog');
 
-        // Initialize Camera
+        // ─── Debug helper ────────────────────────────────────────────────────
+        function dbg(msg) {
+            console.log('[WASTE]', msg);
+            debugLog.textContent = msg;
+        }
+
+        // ─── Camera ready check ──────────────────────────────────────────────
+        // BUG FIX #1: Don't rely on `video.onplaying` event which can fire
+        // before the handler is assigned. Poll readyState instead.
+        function isVideoReady() {
+            return (
+                video.readyState >= 2          // HAVE_CURRENT_DATA or better
+                && video.videoWidth > 0
+                && video.videoHeight > 0
+                && !video.paused
+                && !video.ended
+            );
+        }
+
+        // ─── Camera Init ─────────────────────────────────────────────────────
         async function initCamera() {
             try {
+                dbg('Requesting camera access...');
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: 'environment',
-                        width: { ideal: 1280 },
+                        width:  { ideal: 720 },
                         height: { ideal: 720 }
                     }
                 });
-                
+
                 video.srcObject = stream;
+
+                // BUG FIX #1 cont'd: Wait for metadata + a short play delay
+                // so videoWidth/Height are guaranteed non-zero.
+                await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => reject(new Error('Video load timeout')), 10000);
+                    video.onloadedmetadata = () => {
+                        clearTimeout(timeout);
+                        video.play().then(resolve).catch(reject);
+                    };
+                });
+
                 video.style.display = 'block';
                 placeholder.style.display = 'none';
-                
-                video.onloadedmetadata = () => {
-                    document.getElementById('resolution').textContent = 
-                        `${video.videoWidth} x ${video.videoHeight}`;
-                };
-                
+
+                document.getElementById('resolution').textContent =
+                    `${video.videoWidth} x ${video.videoHeight}`;
                 document.getElementById('cameraStatus').textContent = 'Camera Active';
                 document.getElementById('cameraDot').classList.add('active');
+
+                dbg(`Camera ready: ${video.videoWidth}x${video.videoHeight}`);
+                await populateCameraList();
                 
+                // Tự động bật nhận diện thời gian thực sau 1.5 giây
+                setTimeout(() => {
+                    if (!isScanning) startScanning();
+                }, 1500);
+
             } catch (err) {
                 console.error('Camera error:', err);
                 document.getElementById('cameraStatus').textContent = 'Camera Error';
-                document.getElementById('cameraDot').classList.remove('active');
                 document.getElementById('cameraDot').style.background = 'var(--neon-red)';
                 placeholder.innerHTML = `
                     <i data-lucide="camera-off" style="width:48px;height:48px;margin-bottom:16px"></i>
@@ -1041,87 +1196,284 @@ HTML_TEMPLATE = """
                     <p style="font-size:0.75rem">Please allow camera permissions and reload</p>
                 `;
                 lucide.createIcons();
+                dbg('Camera error: ' + err.message);
             }
         }
 
-        // Capture & Analyze
-        async function captureFrame() {
-            if (isProcessing || !stream) return;
-            
-            isProcessing = true;
-            captureBtn.classList.add('capturing');
-            processingOverlay.classList.add('active');
-            
-            // Show scan animation
-            scanLine.classList.remove('active');
-            void scanLine.offsetWidth;
-            scanLine.classList.add('active');
-            
-            // Capture frame from video
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
-            
-            // Convert to base64
-            const imageData = canvas.toDataURL('image/jpeg', 0.9);
-            
+        async function populateCameraList() {
             try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                const select = document.getElementById('cameraSelect');
+                select.innerHTML = '';
+                videoDevices.forEach((device, idx) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.textContent = device.label || ('Camera ' + (idx + 1));
+                    if (stream) {
+                        const currentTrack = stream.getVideoTracks()[0];
+                        if (currentTrack && currentTrack.getSettings().deviceId === device.deviceId) {
+                            option.selected = true;
+                        }
+                    }
+                    select.appendChild(option);
+                });
+            } catch (err) {
+                console.error('Failed to enumerate devices:', err);
+            }
+        }
+
+        async function switchCamera(deviceId) {
+            if (!deviceId) return;
+            const wasScanning = isScanning;
+            if (wasScanning) stopScanning();
+            if (stream) stream.getTracks().forEach(t => t.stop());
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { deviceId: { exact: deviceId }, width: { ideal: 720 }, height: { ideal: 720 } }
+                });
+                video.srcObject = stream;
+
+                await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => reject(new Error('Switch timeout')), 10000);
+                    video.onloadedmetadata = () => {
+                        clearTimeout(timeout);
+                        video.play().then(resolve).catch(reject);
+                    };
+                });
+
+                video.style.display = 'block';
+                placeholder.style.display = 'none';
+                document.getElementById('resolution').textContent =
+                    `${video.videoWidth} x ${video.videoHeight}`;
+                document.getElementById('cameraStatus').textContent = 'Camera Active';
+
+                if (wasScanning) startScanning();
+            } catch (err) {
+                console.error('Failed to switch camera:', err);
+                document.getElementById('cameraStatus').textContent = 'Switch Failed';
+            }
+        }
+
+        // ─── Scanning Loop ───────────────────────────────────────────────────
+        function toggleScanning() {
+            if (isScanning) stopScanning(); else startScanning();
+        }
+
+        function startScanning() {
+            if (!stream) {
+                dbg('Cannot start: no stream');
+                return;
+            }
+
+            // BUG FIX #2: Ensure video is truly ready before we start;
+            // if not, wait with a small poll instead of a blind setTimeout.
+            if (!isVideoReady()) {
+                dbg('Video not ready yet, retrying in 300ms...');
+                setTimeout(startScanning, 300);
+                return;
+            }
+
+            isScanning = true;
+
+            const btn = document.getElementById('scanToggleBtn');
+            btn.classList.add('active');
+            document.getElementById('scanBtnText').textContent = 'STOP SCAN';
+            const oldSvg = btn.querySelector('.lucide');
+            if (oldSvg) oldSvg.remove();
+            const newI = document.createElement('i');
+            newI.setAttribute('data-lucide', 'scan-line');
+            newI.style.width = '16px'; newI.style.height = '16px';
+            btn.insertBefore(newI, btn.firstChild);
+            lucide.createIcons();
+
+            const indicator = document.getElementById('realtimeIndicator');
+            indicator.classList.add('scanning');
+            document.getElementById('realtimeStatus').textContent = 'SCANNING';
+            document.getElementById('cameraStatus').textContent = 'Scanning...';
+
+            dbg('Scanning started');
+            scheduleNextDetect();
+        }
+
+        function scheduleNextDetect() {
+            if (!isScanning) return;
+            autoDetect().finally(() => {
+                // BUG FIX #3: Always use .finally() so next frame is
+                // scheduled even if autoDetect threw an unhandled error.
+                if (isScanning) {
+                    scanInterval = setTimeout(scheduleNextDetect, 800);
+                }
+            });
+        }
+
+        function stopScanning() {
+            isScanning = false;
+            isProcessing = false;   // BUG FIX #4: reset flag on stop
+            if (scanInterval) { clearTimeout(scanInterval); scanInterval = null; }
+
+            const btn = document.getElementById('scanToggleBtn');
+            btn.classList.remove('active');
+            document.getElementById('scanBtnText').textContent = 'START SCAN';
+            const oldSvg = btn.querySelector('.lucide');
+            if (oldSvg) oldSvg.remove();
+            const newI = document.createElement('i');
+            newI.setAttribute('data-lucide', 'scan');
+            newI.style.width = '16px'; newI.style.height = '16px';
+            btn.insertBefore(newI, btn.firstChild);
+            lucide.createIcons();
+
+            document.getElementById('realtimeIndicator').classList.remove('scanning');
+            document.getElementById('realtimeStatus').textContent = 'STANDBY';
+            document.getElementById('cameraStatus').textContent = 'Camera Active';
+            document.getElementById('fpsCounter').textContent = '-- fps';
+
+            video.style.display = 'block';
+            resultImage.style.display = 'none';
+            document.getElementById('liveOverlay').style.display = 'none';
+
+            dbg('Scanning stopped');
+        }
+
+        // ─── Frame Capture & API Call ─────────────────────────────────────────
+        async function autoDetect() {
+            if (isProcessing) {
+                dbg('Skipped: already processing');
+                return;
+            }
+            if (!isScanning || !stream) return;
+
+            // BUG FIX #5: Always verify readyState right before capture,
+            // not just at scan-start, because the camera may have changed.
+            if (!isVideoReady()) {
+                dbg(`Skipped: video not ready (readyState=${video.readyState} ${video.videoWidth}x${video.videoHeight})`);
+                return;
+            }
+
+            isProcessing = true;
+            try {
+                // Capture frame
+                canvas.width  = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0);
+
+                // BUG FIX #6: Validate the captured frame is not blank
+                // by checking that the canvas has valid dimensions.
+                if (canvas.width === 0 || canvas.height === 0) {
+                    dbg('Canvas is empty, skipping');
+                    return;
+                }
+
+                const imageData = canvas.toDataURL('image/jpeg', 0.8);
+                dbg(`Sending ${Math.round(imageData.length / 1024)}KB frame...`);
+
+                const t0 = performance.now();
                 const response = await fetch('/api/classify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: imageData })
+                    body: JSON.stringify({ image: imageData, realtime: true })
                 });
-                
-                const result = await response.json();
-                
-                if (result.error) {
-                    console.error('Classification error:', result.error);
+
+                if (!response.ok) {
+                    const txt = await response.text();
+                    dbg(`Server error ${response.status}: ${txt.slice(0, 80)}`);
                     return;
                 }
-                
-                // Show result
-                displayResult(result);
-                
+
+                const result = await response.json();
+                const elapsed = Math.round(performance.now() - t0);
+
+                if (result.error) {
+                    dbg('API error: ' + result.error);
+                    return;
+                }
+
+                dbg(`${result.predicted_class} ${result.confidence}% (${elapsed}ms)`);
+
+                // FPS
+                frameCount++;
+                const now = Date.now();
+                if (now - lastFpsTime >= 2000) {
+                    const fps = (frameCount / ((now - lastFpsTime) / 1000)).toFixed(1);
+                    document.getElementById('fpsCounter').textContent = fps + ' fps';
+                    frameCount = 0;
+                    lastFpsTime = now;
+                }
+
+                displayRealtimeResult(result);
+
             } catch (err) {
-                console.error('Network error:', err);
+                dbg('Fetch error: ' + err.message);
+                console.error('[DETECT]', err);
             } finally {
+                // BUG FIX #4 cont'd: always release the lock
                 isProcessing = false;
-                captureBtn.classList.remove('capturing');
-                processingOverlay.classList.remove('active');
             }
         }
 
-        function displayResult(result) {
+        // ─── UI Updates ───────────────────────────────────────────────────────
+        function displayRealtimeResult(result) {
             scanCount++;
             document.getElementById('scanCount').textContent = scanCount;
+
+            // TẮT HIỂN THỊ ẢNH TĨNH CÓ BOUNDING BOX ĐÈ LÊN VIDEO (GIÚP VIDEO MƯỢT HƠN)
+            // resultImage.src = 'data:image/jpeg;base64,' + result.result_image;
+            // resultImage.style.display = 'block';
+
+            // CHỈ CẬP NHẬT LABEL REALTIME (NẾU CẦN, HOẶC CŨNG CÓ THỂ TẮT)
+            const liveOverlay = document.getElementById('liveOverlay');
+            // const liveLabel   = document.getElementById('liveLabel');
+            // const liveConf    = document.getElementById('liveConfidence');
+            // liveOverlay.style.display = 'block';
+            liveOverlay.style.display = 'none'; // Người dùng không cần hiển thị trên màn hình loại gì
+
+            // Tự động cuộn xuống History (Tùy chọn)
+            document.getElementById('resultCard').classList.add('detected');
+            document.getElementById('resultIdle').style.display  = 'none';
+            document.getElementById('resultMain').style.display  = 'block';
             
-            // Switch to result image
-            showingResult = true;
-            video.style.display = 'none';
-            resultImage.src = 'data:image/jpeg;base64,' + result.result_image;
-            resultImage.style.display = 'block';
-            toggleViewBtn.style.display = 'flex';
+            // Cập nhật ảnh tĩnh bên RESULT CARD thay vì đè lên video
+            let resultImgPreview = document.getElementById('resultImgPreview');
+            if(!resultImgPreview) {
+               resultImgPreview = document.createElement('img');
+               resultImgPreview.id = 'resultImgPreview';
+               resultImgPreview.style.width = '100%';
+               resultImgPreview.style.borderRadius = '8px';
+               resultImgPreview.style.marginBottom = '12px';
+               document.getElementById('resultMain').insertBefore(resultImgPreview, document.getElementById('resultMain').firstChild);
+            }
+            resultImgPreview.src = 'data:image/jpeg;base64,' + result.result_image;
             
-            // Update result card
-            const resultCard = document.getElementById('resultCard');
-            resultCard.classList.add('detected');
-            document.getElementById('resultIdle').style.display = 'none';
-            document.getElementById('resultMain').style.display = 'block';
-            
-            document.getElementById('resultClass').textContent = result.predicted_class;
-            
+            document.getElementById('resultClass').textContent   = result.predicted_class;
+
             const confEl = document.getElementById('resultConfidence');
             confEl.textContent = result.confidence.toFixed(1) + '%';
-            confEl.className = 'result-confidence ' + 
-                (result.confidence >= 80 ? 'high' : (result.confidence >= 50 ? 'medium' : 'low'));
-            
-            // Update top 5
+            confEl.className = 'result-confidence '
+                + (result.confidence >= 80 ? 'high' : result.confidence >= 50 ? 'medium' : 'low');
+
+            const catBadge  = document.getElementById('categoryBadge');
+            const catIconEl = document.getElementById('categoryIcon');
+            catBadge.classList.add('visible');
+            document.getElementById('categoryText').textContent = result.category;
+            catBadge.style.background = result.cat_bg;
+            catBadge.style.border     = '1px solid ' + result.cat_border;
+            catBadge.style.color      = result.cat_color;
+            const oldSvg = catBadge.querySelector('.lucide');
+            if (oldSvg) oldSvg.remove();
+            const newI = document.createElement('i');
+            newI.id = 'categoryIcon';
+            newI.setAttribute('data-lucide', result.cat_icon);
+            newI.style.width = '14px'; newI.style.height = '14px';
+            newI.style.color = result.cat_color;
+            catBadge.insertBefore(newI, catBadge.firstChild);
+            lucide.createIcons();
+
             const top5Card = document.getElementById('top5Card');
             top5Card.style.display = 'block';
             const top5List = document.getElementById('top5List');
             top5List.innerHTML = '';
-            
             result.top5.forEach((item, idx) => {
                 const div = document.createElement('div');
                 div.className = 'top5-item';
@@ -1129,79 +1481,104 @@ HTML_TEMPLATE = """
                     <span class="top5-rank">${idx + 1}</span>
                     <span class="top5-name">${item.class}</span>
                     <div class="top5-bar-container">
-                        <div class="top5-bar" style="width: ${item.confidence}%"></div>
+                        <div class="top5-bar" style="width:${item.confidence}%"></div>
                     </div>
-                    <span class="top5-percent">${item.confidence}%</span>
-                `;
+                    <span class="top5-percent">${item.confidence}%</span>`;
                 top5List.appendChild(div);
             });
-            
-            // Add to history
+
             addToHistory(result);
         }
 
         function addToHistory(result) {
             document.getElementById('historyEmpty').style.display = 'none';
-            
             const historyList = document.getElementById('historyList');
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            
+            while (historyList.children.length > 20) {
+                historyList.removeChild(historyList.lastChild);
+            }
+
+            const timeStr = new Date().toLocaleTimeString('vi-VN',
+                { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
             const item = document.createElement('div');
             item.className = 'history-item';
             item.innerHTML = `
                 <img class="history-thumb" src="data:image/jpeg;base64,${result.result_image}" alt="${result.predicted_class}">
                 <div class="history-info">
                     <div class="history-class">${result.predicted_class}</div>
-                    <div class="history-time">${timeStr}</div>
+                    <div class="history-time" style="display:flex;align-items:center;gap:4px">
+                        ${timeStr}
+                        <span style="font-size:0.55rem;padding:1px 4px;border-radius:3px;background:${result.cat_bg};border:1px solid ${result.cat_border};color:${result.cat_color}">${result.category}</span>
+                    </div>
                 </div>
-                <span class="history-conf" style="color: ${result.confidence >= 80 ? 'var(--neon-green)' : (result.confidence >= 50 ? 'var(--neon-yellow)' : 'var(--neon-red)')}">${result.confidence}%</span>
-            `;
-            
-            // Click to show this result image
+                <span class="history-conf" style="color:${result.confidence>=80?'var(--neon-green)':result.confidence>=50?'var(--neon-yellow)':'var(--neon-red)'}">${result.confidence}%</span>`;
+
             item.addEventListener('click', () => {
-                resultImage.src = 'data:image/jpeg;base64,' + result.result_image;
-                resultImage.style.display = 'block';
-                video.style.display = 'none';
-                showingResult = true;
-                toggleViewBtn.style.display = 'flex';
+                let resultImgPreview = document.getElementById('resultImgPreview');
+                if(!resultImgPreview) {
+                   resultImgPreview = document.createElement('img');
+                   resultImgPreview.id = 'resultImgPreview';
+                   resultImgPreview.style.width = '100%';
+                   resultImgPreview.style.borderRadius = '8px';
+                   resultImgPreview.style.marginBottom = '12px';
+                   document.getElementById('resultMain').insertBefore(resultImgPreview, document.getElementById('resultMain').firstChild);
+                }
+                resultImgPreview.src = 'data:image/jpeg;base64,' + result.result_image;
                 
-                // Update result display
+                // Không hiển thị đè lên luồng livestream
+                // resultImage.src = 'data:image/jpeg;base64,' + result.result_image;
+                // resultImage.style.display = 'block';
+                // video.style.display = 'none';
+                
+                // Đảm bảo video vẫn tiếp tục phát
+                video.style.display = 'block';
+                resultImage.style.display = 'none';
+                
                 document.getElementById('resultClass').textContent = result.predicted_class;
-                const confEl = document.getElementById('resultConfidence');
-                confEl.textContent = result.confidence.toFixed(1) + '%';
-                confEl.className = 'result-confidence ' + 
-                    (result.confidence >= 80 ? 'high' : (result.confidence >= 50 ? 'medium' : 'low'));
+                const c = document.getElementById('resultConfidence');
+                c.textContent = result.confidence.toFixed(1) + '%';
+                c.className = 'result-confidence '
+                    + (result.confidence>=80?'high':result.confidence>=50?'medium':'low');
+                const catBadge = document.getElementById('categoryBadge');
+                catBadge.classList.add('visible');
+                document.getElementById('categoryText').textContent = result.category;
+                catBadge.style.background = result.cat_bg;
+                catBadge.style.border     = '1px solid ' + result.cat_border;
+                catBadge.style.color      = result.cat_color;
+                const oldSvg = catBadge.querySelector('.lucide');
+                if (oldSvg) oldSvg.remove();
+                const newI = document.createElement('i');
+                newI.id = 'categoryIcon';
+                newI.setAttribute('data-lucide', result.cat_icon);
+                newI.style.width = '14px'; newI.style.height = '14px';
+                newI.style.color = result.cat_color;
+                catBadge.insertBefore(newI, catBadge.firstChild);
+                lucide.createIcons();
             });
-            
+
             historyList.insertBefore(item, historyList.firstChild);
         }
 
-        function toggleView() {
-            if (showingResult) {
-                // Switch back to live view
-                video.style.display = 'block';
-                resultImage.style.display = 'none';
-                showingResult = false;
-                toggleViewBtn.querySelector('span').textContent = 'Result';
-            } else {
-                // Switch to result
-                video.style.display = 'none';
-                resultImage.style.display = 'block';
-                showingResult = true;
-                toggleViewBtn.querySelector('span').textContent = 'Live View';
-            }
-        }
-
-        // Keyboard shortcut - Space to capture
+        // ─── Keyboard shortcuts ───────────────────────────────────────────────
         document.addEventListener('keydown', (e) => {
-            if (e.code === 'Space' && !e.repeat) {
+            if (e.repeat) return;
+            if (e.code === 'Space') {
                 e.preventDefault();
-                captureFrame();
+                toggleScanning();
+            }
+            // Press D to toggle debug overlay
+            if (e.code === 'KeyD') {
+                debugVisible = !debugVisible;
+                debugLog.style.display = debugVisible ? 'block' : 'none';
             }
         });
 
-        // Start
+        // Đổi màu nền camera 
+        document.getElementById('bgColorPicker').addEventListener('input', (e) => {
+            document.getElementById('viewport').style.background = e.target.value;
+        });
+
+        // ─── Boot ─────────────────────────────────────────────────────────────
         initCamera();
     </script>
 </body>
@@ -1218,21 +1595,38 @@ def index():
 def api_classify():
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON body received'}), 400
+
         image_data = data.get('image', '')
-        
-        # Remove data URL prefix
+        realtime   = data.get('realtime', False)
+
+        if not image_data:
+            return jsonify({'error': 'No image data provided'}), 400
+
+        # Remove data URL prefix if present
         if ',' in image_data:
             image_data = image_data.split(',')[1]
-        
-        # Decode base64 to PIL image
+
+        # Decode and open image
         img_bytes = base64.b64decode(image_data)
-        pil_img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        pil_img   = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+
+        # Validate image isn't tiny/blank
+        if pil_img.width < 10 or pil_img.height < 10:
+            return jsonify({'error': f'Image too small: {pil_img.size}'}), 400
+
+        # Buộc bật GradCAM để luôn lấy tọa độ bounding box hiển thị
+        result = classify_frame(model, pil_img, skip_gradcam=False)
         
-        # Classify
-        result = classify_frame(model, pil_img)
-        
+        # IN LOG KIỂM TRA RA TERMINAL
+        print(f"[API] Nhận diện: {result['predicted_class'].upper()} "
+              f"| Độ tự tin: {result['confidence']}% "
+              f"| Điểm vật thể: {result['obj_score']}% "
+              f"| Vẽ khung: {'Có' if result['has_bbox'] else 'Không'}")
+              
         return jsonify(result)
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1244,8 +1638,7 @@ if __name__ == "__main__":
     print("  W.A.S.T.E. SCANNER - AI Waste Detection Camera")
     print("  Waste Analysis Scanner & Type Engine")
     print("=" * 60)
-    
-    # Load Model
+
     if os.path.exists(MODEL_PATH):
         try:
             model = load_model(MODEL_PATH)
@@ -1257,13 +1650,14 @@ if __name__ == "__main__":
     else:
         print(f"  Model not found: {MODEL_PATH}")
         exit(1)
-    
+
     print()
     print("=" * 60)
     print("  SCANNER ONLINE")
     print("  Open: http://localhost:9999")
-    print("  Press SPACE to capture & analyze")
+    print("  Press SPACE to toggle scanning")
+    print("  Press D    to toggle debug overlay")
     print("=" * 60)
     print()
-    
+
     app.run(debug=True, port=9999, use_reloader=False)
