@@ -23,6 +23,24 @@ MODEL_PATH = os.path.join(SCRIPT_DIR, "trainModel/model.pth")
 CLASS_NAMES = []
 IMG_SIZE = 720
 
+# Waste category mapping: class -> category
+WASTE_CATEGORIES = {
+    'battery':    {'category': 'Hazardous',      'icon': 'alert-triangle', 'color': '#FF003C', 'bg': 'rgba(255,0,60,0.15)',  'border': 'rgba(255,0,60,0.4)'},
+    'biological': {'category': 'Organic',         'icon': 'leaf',           'color': '#0AFF00', 'bg': 'rgba(10,255,0,0.15)',  'border': 'rgba(10,255,0,0.4)'},
+    'cardboard':  {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)','border': 'rgba(59,130,246,0.4)'},
+    'clothes':    {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
+    'glass':      {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)','border': 'rgba(59,130,246,0.4)'},
+    'metal':      {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)','border': 'rgba(59,130,246,0.4)'},
+    'paper':      {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)','border': 'rgba(59,130,246,0.4)'},
+    'plastic':    {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)','border': 'rgba(59,130,246,0.4)'},
+    'shoes':      {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
+    'trash':      {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
+}
+
+def get_waste_category(class_name):
+    """Get waste category info for a class"""
+    return WASTE_CATEGORIES.get(class_name, {'category': 'Unknown', 'icon': 'help-circle', 'color': '#64748B', 'bg': 'rgba(100,116,139,0.15)', 'border': 'rgba(100,116,139,0.4)'})
+
 app = Flask(__name__)
 
 class WasteDetectorModel(nn.Module):
@@ -311,6 +329,8 @@ def classify_images(model):
             actual_class = get_actual_class(img_name)
             is_correct = predicted_class == actual_class if actual_class != "unknown" else False
             
+            cat_info = get_waste_category(predicted_class)
+            
             results.append({
                 'image_b64': base64_img,
                 'actual': actual_class,
@@ -318,7 +338,12 @@ def classify_images(model):
                 'confidence': confidence_val,
                 'obj_score': obj_score,
                 'correct': is_correct,
-                'has_bbox': bbox is not None
+                'has_bbox': bbox is not None,
+                'category': cat_info['category'],
+                'cat_icon': cat_info['icon'],
+                'cat_color': cat_info['color'],
+                'cat_bg': cat_info['bg'],
+                'cat_border': cat_info['border'],
             })
             
             status_icon = "✓" if is_correct else ("?" if actual_class == "unknown" else "✗")
@@ -593,6 +618,17 @@ HTML_TEMPLATE = """
                         {{ r.predicted if r.predicted else 'No Detection' }}
                     </div>
                 </div>
+
+                <!-- Category Badge -->
+                {% if r.category %}
+                <div class="mb-3 flex items-center gap-1.5">
+                    <div class="px-2 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1" 
+                         style="background: {{ r.cat_bg }}; border: 1px solid {{ r.cat_border }}; color: {{ r.cat_color }}">
+                        <i data-lucide="{{ r.cat_icon }}" class="w-2.5 h-2.5"></i>
+                        {{ r.category }}
+                    </div>
+                </div>
+                {% endif %}
 
                 <div class="flex items-center justify-between pt-3 border-t border-white/5">
                     <div class="flex flex-col">
