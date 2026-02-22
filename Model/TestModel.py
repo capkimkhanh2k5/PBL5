@@ -2,8 +2,13 @@
 import os
 import base64
 import time
+import torch
+import torch.nn as nn
+import torchvision.transforms as transforms
+import torchvision.models as models
+import numpy as np
+import cv2
 from flask import Flask, render_template_string
-from ultralytics import YOLO
 from PIL import Image
 import io
 
@@ -12,15 +17,353 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Configuration
 TEST_DIR = os.path.join(SCRIPT_DIR, "TestImage")
-MODEL_PATH = os.path.join(SCRIPT_DIR, "finalModel/best.pt")
+MODEL_PATH = os.path.join(SCRIPT_DIR, "trainModel/model.pth")
 
-# Class names from finalModel/README.md
-CLASS_NAMES = ['battery', 'biological', 'cardboard', 'clothes', 'glass', 
-               'metal', 'paper', 'plastic', 'shoes', 'trash']
+# Will be loaded from checkpoint
+CLASS_NAMES = []
+IMG_SIZE = 720
 
 app = Flask(__name__)
 
-# Modern Technical UI Template with Tailwind CSS
+class WasteDetectorModel(nn.Module):
+    """MobileNetV3-based waste classifier with objectness detection"""
+    
+    def __init__(self, num_classes=10):
+        super().__init__()
+        # Load MobileNetV3-Large backbone
+        backbone = models.mobilenet_v3_large(weights=None)
+        
+        # Extract features (convolutional layers)
+        self.features = backbone.features
+        self.avgpool = backbone.avgpool
+        
+        # Classifier head (same structure as saved model)
+        self.classifier = nn.Sequential(
+            nn.Linear(960, 512),
+            nn.Hardswish(),
+            nn.Dropout(p=0.3),
+            nn.Linear(512, 256),
+            nn.Hardswish(),
+            nn.Dropout(p=0.3),
+            nn.Linear(256, num_classes)
+        )
+        
+        # Objectness head - predicts if there's a waste object in the image
+        self.objectness = nn.Sequential(
+            nn.Linear(960, 128),
+            nn.ReLU(),
+            nn.Dropout(p=0.3),
+            nn.Linear(128, 1)
+        )
+    
+    def forward(self, x):
+        features = self.features(x)
+        pooled = self.avgpool(features)
+        pooled = pooled.flatten(1)
+        
+        class_logits = self.classifier(pooled)
+        obj_score = self.objectness(pooled)
+        
+        return class_logits, obj_score, features
+
+
+def load_model(model_path):
+    """Load the trained MobileNetV3 model from .pth checkpoint"""
+    global CLASS_NAMES, IMG_SIZE
+    
+    print(f"📦 Loading model from: {model_path}")
+    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+    
+    CLASS_NAMES = checkpoint.get('classes', 
+        ['battery', 'biological', 'cardboard', 'clothes', 'glass', 
+         'metal', 'paper', 'plastic', 'shoes', 'trash'])
+    IMG_SIZE = checkpoint.get('img_size', 720)
+    
+    num_classes = len(CLASS_NAMES)
+    model = WasteDetectorModel(num_classes=num_classes)
+    
+    # Load state dict
+    state_dict = checkpoint.get('model_state', checkpoint.get('model_state_dict', checkpoint))
+    model.load_state_dict(state_dict, strict=False)
+    model.eval()
+    
+    val_acc = checkpoint.get('val_acc', 'N/A')
+    epoch = checkpoint.get('epoch', 'N/A')
+    
+    print(f"✅ Model loaded successfully!")
+    print(f"   Architecture: MobileNetV3-Large + Objectness Head")
+    print(f"   Classes ({num_classes}): {CLASS_NAMES}")
+    print(f"   Image size: {IMG_SIZE}")
+    print(f"   Val accuracy: {val_acc}")
+    print(f"   Epoch: {epoch}")
+    
+    return model
+
+
+# ============================================================
+# IMAGE PREPROCESSING & INFERENCE
+# ============================================================
+
+def get_transform(img_size):
+    """Get the image transform pipeline"""
+    return transforms.Compose([
+        transforms.Resize((img_size, img_size)),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], 
+            std=[0.229, 0.224, 0.225]
+        )
+    ])
+
+
+def generate_gradcam(model, input_tensor, class_idx):
+    """Generate GradCAM heatmap to visualize where the model is looking"""
+    model.eval()
+    
+    # Hook to capture feature maps and gradients
+    feature_maps = []
+    gradients = []
+    
+    def forward_hook(module, input, output):
+        feature_maps.append(output.detach())
+    
+    def backward_hook(module, grad_input, grad_output):
+        gradients.append(grad_output[0].detach())
+    
+    # Register hooks on the last conv layer
+    last_conv = model.features[-1]
+    fwd_handle = last_conv.register_forward_hook(forward_hook)
+    bwd_handle = last_conv.register_full_backward_hook(backward_hook)
+    
+    # Forward pass
+    input_tensor.requires_grad_(True)
+    class_logits, _, _ = model(input_tensor)
+    
+    # Backward pass for target class
+    model.zero_grad()
+    one_hot = torch.zeros_like(class_logits)
+    one_hot[0, class_idx] = 1
+    class_logits.backward(gradient=one_hot, retain_graph=True)
+    
+    # Remove hooks
+    fwd_handle.remove()
+    bwd_handle.remove()
+    
+    if not gradients or not feature_maps:
+        return None
+    
+    # Compute GradCAM
+    grads = gradients[0]
+    fmaps = feature_maps[0]
+    weights = torch.mean(grads, dim=[2, 3], keepdim=True)
+    cam = torch.sum(weights * fmaps, dim=1, keepdim=True)
+    cam = torch.relu(cam)
+    
+    # Normalize
+    cam = cam.squeeze().numpy()
+    if cam.max() > 0:
+        cam = cam / cam.max()
+    
+    return cam
+
+
+def get_bounding_box_from_cam(cam, original_size, threshold=0.3):
+    """Extract bounding box from GradCAM heatmap"""
+    # Resize CAM to original image size
+    cam_resized = cv2.resize(cam, (original_size[0], original_size[1]))
+    
+    # Threshold
+    binary = (cam_resized > threshold).astype(np.uint8)
+    
+    # Find contours
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if not contours:
+        return None
+    
+    # Get the largest contour
+    largest = max(contours, key=cv2.contourArea)
+    x, y, w, h = cv2.boundingRect(largest)
+    
+    # Add some padding (10%)
+    pad_x = int(w * 0.1)
+    pad_y = int(h * 0.1)
+    x = max(0, x - pad_x)
+    y = max(0, y - pad_y)
+    w = min(original_size[0] - x, w + 2 * pad_x)
+    h = min(original_size[1] - y, h + 2 * pad_y)
+    
+    return (x, y, w, h)
+
+
+def draw_detection_on_image(img_cv2, bbox, class_name, confidence, obj_score):
+    """Draw bounding box and labels on image"""
+    result = img_cv2.copy()
+    
+    if bbox is not None:
+        x, y, w, h = bbox
+        
+        # Color based on confidence
+        if confidence > 0.8:
+            color = (0, 255, 100)  # Green
+        elif confidence > 0.5:
+            color = (0, 200, 255)  # Yellow
+        else:
+            color = (0, 100, 255)  # Orange
+        
+        # Draw bounding box
+        cv2.rectangle(result, (x, y), (x + w, y + h), color, 2)
+        
+        # Label background
+        label = f"{class_name}: {confidence*100:.1f}%"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        thickness = 2
+        (text_w, text_h), baseline = cv2.getTextSize(label, font, font_scale, thickness)
+        
+        # Draw label background
+        cv2.rectangle(result, (x, y - text_h - 10), (x + text_w + 8, y), color, -1)
+        cv2.putText(result, label, (x + 4, y - 5), font, font_scale, (0, 0, 0), thickness)
+        
+        # Draw objectness score
+        obj_label = f"Obj: {obj_score*100:.0f}%"
+        cv2.putText(result, obj_label, (x + 4, y + h + 18), font, 0.45, color, 1)
+    
+    return result
+
+
+
+def classify_images(model):
+    """Classify all images in TestImage folder using MobileNetV3"""
+    if not os.path.exists(TEST_DIR):
+        print(f"⚠️ Test directory '{TEST_DIR}' not found!")
+        print(f"   Creating '{TEST_DIR}' folder...")
+        os.makedirs(TEST_DIR)
+        print(f"   Please add test images to '{TEST_DIR}' folder and refresh.")
+        return [], 0
+    
+    # Get all image files
+    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
+    images = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(valid_extensions)]
+    
+    if not images:
+        print(f"⚠️ No images found in '{TEST_DIR}' folder!")
+        return [], 0
+    
+    print(f"📷 Found {len(images)} images to test")
+    results = []
+    transform = get_transform(IMG_SIZE)
+    
+    start_time = time.time()
+    
+    for idx, img_name in enumerate(images):
+        img_path = os.path.join(TEST_DIR, img_name)
+        
+        try:
+            # Load original image
+            pil_img = Image.open(img_path).convert('RGB')
+            original_size = pil_img.size  # (width, height)
+            
+            # Transform for model input
+            input_tensor = transform(pil_img).unsqueeze(0)
+            
+            # Inference
+            with torch.no_grad():
+                class_logits, obj_score_raw, _ = model(input_tensor)
+            
+            # Get prediction
+            probabilities = torch.softmax(class_logits, dim=1)
+            confidence, predicted_idx = torch.max(probabilities, dim=1)
+            predicted_class = CLASS_NAMES[predicted_idx.item()]
+            confidence_val = confidence.item()
+            
+            # Objectness score (sigmoid for probability)
+            obj_score = torch.sigmoid(obj_score_raw).item()
+            
+            # Generate GradCAM and bounding box
+            input_for_cam = transform(pil_img).unsqueeze(0)
+            cam = generate_gradcam(model, input_for_cam, predicted_idx.item())
+            
+            bbox = None
+            if cam is not None and obj_score > 0.3:
+                bbox = get_bounding_box_from_cam(cam, original_size)
+            
+            # Draw detection on image
+            img_cv2 = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            
+            if bbox is not None:
+                result_img = draw_detection_on_image(img_cv2, bbox, predicted_class, confidence_val, obj_score)
+            else:
+                # No bounding box available, add label on top
+                result_img = img_cv2.copy()
+                label = f"{predicted_class}: {confidence_val*100:.1f}%"
+                cv2.putText(result_img, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 100), 2)
+            
+            # Convert to base64
+            result_img_rgb = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
+            img_pil_result = Image.fromarray(result_img_rgb)
+            img_pil_result.thumbnail((400, 400))
+            buffer = io.BytesIO()
+            img_pil_result.save(buffer, format='JPEG', quality=85)
+            base64_img = base64.b64encode(buffer.getvalue()).decode()
+            
+            # Determine actual class from filename
+            actual_class = get_actual_class(img_name)
+            is_correct = predicted_class == actual_class if actual_class != "unknown" else False
+            
+            results.append({
+                'image_b64': base64_img,
+                'actual': actual_class,
+                'predicted': predicted_class,
+                'confidence': confidence_val,
+                'obj_score': obj_score,
+                'correct': is_correct,
+                'has_bbox': bbox is not None
+            })
+            
+            status_icon = "✓" if is_correct else ("?" if actual_class == "unknown" else "✗")
+            print(f"  [{idx+1}/{len(images)}] {img_name}: {predicted_class} ({confidence_val*100:.1f}%) obj={obj_score:.2f} {status_icon}")
+            
+        except Exception as e:
+            print(f"❌ Error processing {img_name}: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Fallback: show original image
+            try:
+                fallback_img = Image.open(img_path).convert('RGB')
+                fallback_img.thumbnail((400, 400))
+                buffer = io.BytesIO()
+                fallback_img.save(buffer, format='JPEG', quality=85)
+                base64_img = base64.b64encode(buffer.getvalue()).decode()
+            except:
+                base64_img = ""
+            
+            results.append({
+                'image_b64': base64_img,
+                'actual': get_actual_class(img_name),
+                'predicted': "Error",
+                'confidence': None,
+                'obj_score': None,
+                'correct': False,
+                'has_bbox': False
+            })
+            
+    total_time = time.time() - start_time
+    avg_time = total_time / len(images) if images else 0
+    
+    return results, avg_time
+
+
+def get_actual_class(filename):
+    """Extract actual class from filename"""
+    filename_lower = filename.lower()
+    for cls in CLASS_NAMES:
+        if cls in filename_lower:
+            return cls
+    return "unknown"
+
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en" class="dark">
@@ -126,7 +469,7 @@ HTML_TEMPLATE = """
             </div>
             <div>
                 <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-cyan-200 to-cyan-500 tracking-tight">S.I.G.M.A.</h1>
-                <p class="text-xs font-mono text-cyan-500/70 tracking-widest uppercase">System Evaluation Interface v2.0</p>
+                <p class="text-xs font-mono text-cyan-500/70 tracking-widest uppercase">MobileNetV3 + GradCAM Detection v2.0</p>
             </div>
         </div>
         
@@ -184,6 +527,9 @@ HTML_TEMPLATE = """
             <div class="flex items-center gap-2">
                 <div class="w-2 h-2 bg-yellow-500 rounded-full shadow-[0_0_5px_#eab308]"></div> Unknown Label
             </div>
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 border border-cyan-400 rounded-sm"></div> BBox (GradCAM)
+            </div>
         </div>
     </div>
 
@@ -222,6 +568,15 @@ HTML_TEMPLATE = """
                 <div class="absolute top-3 left-3">
                     <div class="px-2 py-1 rounded bg-black/60 backdrop-blur-sm text-[10px] font-mono text-cyan-300 border border-cyan-500/30">
                         {{ "%.1f"|format(r.confidence * 100) }}%
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- BBox indicator -->
+                {% if r.has_bbox %}
+                <div class="absolute bottom-3 left-3">
+                    <div class="px-2 py-1 rounded bg-cyan-500/20 backdrop-blur-sm text-[9px] font-mono text-cyan-300 border border-cyan-400/40 flex items-center gap-1">
+                        <i data-lucide="scan" class="w-2.5 h-2.5"></i> DETECTED
                     </div>
                 </div>
                 {% endif %}
@@ -272,7 +627,7 @@ HTML_TEMPLATE = """
     {% endif %}
 
     <footer class="max-w-7xl mx-auto text-center text-slate-600 text-xs py-8 border-t border-slate-800/50">
-        <p>POWERED BY YOLOv8 &bull; FINAL ULTIMATE MODEL</p>
+        <p>POWERED BY MobileNetV3 + GradCAM &bull; WASTE DETECTOR MODEL</p>
     </footer>
 
     <script>
@@ -313,110 +668,6 @@ HTML_TEMPLATE = """
 </html>
 """
 
-def image_to_base64(img_path):
-    """Convert image to base64 for embedding in HTML"""
-    try:
-        with Image.open(img_path) as img:
-            img = img.convert('RGB')
-            # Resize for faster loading, but keep decent quality
-            img.thumbnail((400, 400)) 
-            buffer = io.BytesIO()
-            img.save(buffer, format='JPEG', quality=85)
-            return base64.b64encode(buffer.getvalue()).decode()
-    except Exception as e:
-        print(f"Error converting image {img_path}: {e}")
-        return ""
-
-def get_actual_class(filename):
-    """Extract actual class from filename"""
-    filename_lower = filename.lower()
-    for cls in CLASS_NAMES:
-        if cls in filename_lower:
-            return cls
-    return "unknown"
-
-def classify_images(model):
-    """Classify all images in TestImage folder using YOLO"""
-    if not os.path.exists(TEST_DIR):
-        print(f"⚠️ Test directory '{TEST_DIR}' not found!")
-        print(f"   Creating '{TEST_DIR}' folder...")
-        os.makedirs(TEST_DIR)
-        print(f"   Please add test images to '{TEST_DIR}' folder and refresh.")
-        return [], 0
-    
-    # Get all image files
-    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
-    images = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(valid_extensions)]
-    
-    if not images:
-        print(f"⚠️ No images found in '{TEST_DIR}' folder!")
-        return [], 0
-    
-    print(f"📷 Found {len(images)} images to test")
-    results = []
-    
-    start_time = time.time()
-    
-    for idx, img_name in enumerate(images):
-        img_path = os.path.join(TEST_DIR, img_name)
-        
-        try:
-            # YOLO prediction
-            prediction = model.predict(img_path, verbose=False)
-            
-            # Get the best prediction
-            predicted_class = None
-            confidence = None
-            
-            if len(prediction) > 0:
-                # Check for boxes (detection)
-                if prediction[0].boxes is not None and len(prediction[0].boxes) > 0:
-                    boxes = prediction[0].boxes
-                    confidences = boxes.conf.cpu().numpy()
-                    classes = boxes.cls.cpu().numpy()
-                    
-                    if len(confidences) > 0:
-                        best_idx = confidences.argmax()
-                        predicted_class = CLASS_NAMES[int(classes[best_idx])]
-                        confidence = float(confidences[best_idx])
-
-                # Check for probs (classification)
-                elif hasattr(prediction[0], 'probs') and prediction[0].probs is not None:
-                    probs = prediction[0].probs
-                    top_class_idx = probs.top1
-                    predicted_class = CLASS_NAMES[top_class_idx]
-                    confidence = float(probs.top1conf)
-            
-            actual_class = get_actual_class(img_name)
-            is_correct = predicted_class == actual_class if actual_class != "unknown" else False
-            
-            results.append({
-                'image_b64': image_to_base64(img_path),
-                'actual': actual_class,
-                'predicted': predicted_class if predicted_class else "No Detection",
-                'confidence': confidence,
-                'correct': is_correct
-            })
-            
-            status_icon = "✓" if is_correct else ("?" if actual_class == "unknown" else "✗")
-            conf_str = f"({confidence*100:.1f}%)" if confidence else ""
-            print(f"  [{idx+1}/{len(images)}] {img_name}: {predicted_class} {conf_str} {status_icon}")
-            
-        except Exception as e:
-            print(f"❌ Error processing {img_name}: {e}")
-            results.append({
-                'image_b64': image_to_base64(img_path),
-                'actual': get_actual_class(img_name),
-                'predicted': "Error",
-                'confidence': None,
-                'correct': False
-            })
-            
-    total_time = time.time() - start_time
-    avg_time = total_time / len(images) if images else 0
-    
-    return results, avg_time
-
 @app.route('/')
 def index():
     results, avg_time = classify_images(model)
@@ -437,25 +688,25 @@ def index():
         avg_time=avg_time
     )
 
+
 if __name__ == "__main__":
     print("=" * 60)
     print("🚀 S.I.G.M.A. EVALUATION CONSOLE STARTING...")
+    print("   Model: MobileNetV3 + GradCAM BBox Detection")
     print("=" * 60)
     
-    # Load YOLO Model
+    # Load Model
     if os.path.exists(MODEL_PATH):
-        print(f"\n📦 Loading Neural Core: {MODEL_PATH}")
         try:
-            model = YOLO(MODEL_PATH)
-            print("✅ Neural Core Online")
-            print(f"   Task: {model.task}")
-            print(f"   Classes: {len(CLASS_NAMES)}")
+            model = load_model(MODEL_PATH)
         except Exception as e:
             print(f"❌ Core Initialization Failed: {e}")
+            import traceback
+            traceback.print_exc()
             exit(1)
     else:
         print(f"❌ Critical Error: Model file missing at {MODEL_PATH}")
-        print("   Please ensure 'best.pt' is in the finalModel directory.")
+        print("   Please ensure 'model.pth' is in the trainModel directory.")
         exit(1)
     
     # Check test directory
