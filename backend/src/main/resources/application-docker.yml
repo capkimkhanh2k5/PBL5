@@ -1,0 +1,11 @@
+# Docker profile configuration
+server:
+  port: 8080
+
+spring:
+  application:
+    name: SmartTrashBackend
+
+# serviceAccountKey.json is included in JAR via classpath (copied during build)
+firebase:
+  service-account: classpath:serviceAccountKey.json

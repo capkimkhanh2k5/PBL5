@@ -49,3 +49,10 @@ docs
 # Firebase Secret Key
 serviceAccountKey.json
 backend/target/
+
+# Docker
+.env
+
+# Model weights (large files)
+*.pth
+*.onnx
