@@ -1,6 +1,7 @@
 import os
 import base64
 import json
+import time
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -208,7 +209,291 @@ def draw_detection(img_cv2, bbox, class_name, confidence, obj_score):
     return result
 
 
-def classify_frame(model, pil_img, skip_gradcam=False):
+class BackgroundStateMachine:
+    """MOG2 Background Subtraction State Machine with Two-Tier Detection.
+    
+    States:
+        IDLE   - Background is empty, waiting for object
+        MOTION - Movement detected (hand placing object)
+        STABLE - Object appears still, counting stable frames
+        LOCKED - Object confirmed stable, AI result ready
+    
+    Two-Tier Strategy:
+        Tier 1 (Early):  After early_stable_frames, run quick classify (no GradCAM)
+                         If confidence >= early_confidence_threshold → LOCK immediately
+        Tier 2 (Full):   After full_stable_frames, run full classify (with GradCAM)
+                         Always LOCK regardless of confidence
+    """
+    STATE_IDLE   = 'idle'
+    STATE_MOTION = 'motion'
+    STATE_STABLE = 'stable'
+    STATE_LOCKED = 'locked'
+
+    def __init__(self, history=300, var_threshold=50, min_area=3000,
+                 stable_threshold=15, early_stable_frames=4,
+                 full_stable_frames=7, idle_frames_required=10,
+                 early_confidence_threshold=75.0):
+        # MOG2 Background Subtractor
+        self.mog2 = cv2.createBackgroundSubtractorMOG2(
+            history=history,
+            varThreshold=var_threshold,
+            detectShadows=True
+        )
+        # Morphology kernels for noise removal
+        self.kernel_open  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        self.kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+
+        # Thresholds
+        self.min_area = min_area
+        self.stable_threshold = stable_threshold
+        self.early_stable_frames = early_stable_frames    # Tier 1: quick classify
+        self.full_stable_frames = full_stable_frames      # Tier 2: full classify
+        self.idle_frames_required = idle_frames_required
+        self.early_confidence_threshold = early_confidence_threshold
+
+        # State tracking
+        self.state = self.STATE_IDLE
+        self.prev_bbox = None
+        self.stable_count = 0
+        self.idle_count = 0
+        self.locked_result = None
+        self.locked_bbox = None
+        self.warmup_frames = 0
+        self.warmup_required = 50       # Reduced for near real-time startup
+        self.early_triggered = False   # Whether tier 1 has been attempted
+        self.early_result = None       # Cached tier 1 result
+
+        print(f"[MOG2] Two-Tier State Machine initialized")
+        print(f"  Tier 1 (early): {early_stable_frames} frames, confidence >= {early_confidence_threshold}%")
+        print(f"  Tier 2 (full):  {full_stable_frames} frames, always lock")
+        print(f"  min_area={min_area}, stable_threshold={stable_threshold}px")
+
+    def reset(self):
+        """Reset state machine to IDLE"""
+        self.state = self.STATE_IDLE
+        self.prev_bbox = None
+        self.stable_count = 0
+        self.idle_count = 0
+        self.locked_result = None
+        self.locked_bbox = None
+        self.early_triggered = False
+        self.early_result = None
+        print("[MOG2] State reset to IDLE")
+
+    def process_frame(self, frame_bgr):
+        """Process a single BGR frame through MOG2 state machine.
+        
+        Returns dict with:
+            state: current state string
+            contour_area: area of largest contour
+            stable_count: consecutive stable frames  
+            bbox: (x, y, w, h) or None
+            should_early_classify: True if tier 1 should run
+            should_full_classify: True if tier 2 should run
+            warmup_progress: 0-100
+            tier: 'early' or 'full' or None
+        """
+        # Determine learning rate based on state
+        if self.state == self.STATE_LOCKED:
+            learning_rate = 0
+        elif self.warmup_frames < self.warmup_required:
+            learning_rate = -1
+        else:
+            learning_rate = 0.005
+
+        fg_mask = self.mog2.apply(frame_bgr, learningRate=learning_rate)
+
+        # Track warmup
+        if self.warmup_frames < self.warmup_required:
+            self.warmup_frames += 1
+            warmup_pct = int((self.warmup_frames / self.warmup_required) * 100)
+            if self.warmup_frames % 10 == 0:
+                print(f"[MOG2] Learning background... {warmup_pct}%")
+            return {
+                'state': 'warmup',
+                'contour_area': 0,
+                'stable_count': 0,
+                'bbox': None,
+                'should_early_classify': False,
+                'should_full_classify': False,
+                'warmup_progress': warmup_pct,
+                'tier': None
+            }
+
+        # Remove shadows
+        fg_mask[fg_mask == 127] = 0
+
+        # Morphological cleanup
+        fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, self.kernel_open)
+        fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, self.kernel_close)
+
+        # Find contours
+        contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        valid_contours = [c for c in contours if cv2.contourArea(c) > self.min_area]
+        
+        current_bbox = None
+        total_area = 0
+        if valid_contours:
+            largest = max(valid_contours, key=cv2.contourArea)
+            total_area = cv2.contourArea(largest)
+            current_bbox = cv2.boundingRect(largest)
+
+        # State machine logic
+        should_early_classify = False
+        should_full_classify = False
+        prev_state = self.state
+
+        if self.state == self.STATE_IDLE:
+            if current_bbox is not None and total_area > self.min_area:
+                self.state = self.STATE_MOTION
+                self.stable_count = 0
+                self.idle_count = 0
+                self.early_triggered = False
+                self.early_result = None
+                self.prev_bbox = current_bbox
+                print(f"[MOG2] IDLE → MOTION (area={total_area:.0f})")
+
+        elif self.state == self.STATE_MOTION:
+            if current_bbox is None or total_area < self.min_area:
+                self.idle_count += 1
+                if self.idle_count >= self.idle_frames_required:
+                    self.state = self.STATE_IDLE
+                    self.prev_bbox = None
+                    self.stable_count = 0
+                    self.early_triggered = False
+                    self.early_result = None
+                    print(f"[MOG2] MOTION → IDLE (no contour for {self.idle_count} frames)")
+            else:
+                self.idle_count = 0
+                shift = self._calc_bbox_shift(self.prev_bbox, current_bbox)
+                if shift < self.stable_threshold:
+                    self.stable_count += 1
+                    if self.stable_count >= self.early_stable_frames and not self.early_triggered:
+                        self.state = self.STATE_STABLE
+                        print(f"[MOG2] MOTION → STABLE (shift={shift:.1f}, count={self.stable_count})")
+                else:
+                    self.stable_count = 0
+                    self.early_triggered = False
+                    self.early_result = None
+                self.prev_bbox = current_bbox
+
+        elif self.state == self.STATE_STABLE:
+            if current_bbox is None or total_area < self.min_area:
+                self.idle_count += 1
+                if self.idle_count >= self.idle_frames_required:
+                    self.state = self.STATE_IDLE
+                    self.prev_bbox = None
+                    self.stable_count = 0
+                    self.early_triggered = False
+                    self.early_result = None
+                    print(f"[MOG2] STABLE → IDLE (object removed)")
+            else:
+                self.idle_count = 0
+                shift = self._calc_bbox_shift(self.prev_bbox, current_bbox)
+                if shift < self.stable_threshold:
+                    self.stable_count += 1
+                    
+                    # Tier 1: Early classify (no GradCAM)
+                    if not self.early_triggered and self.stable_count >= self.early_stable_frames:
+                        should_early_classify = True
+                        self.early_triggered = True
+                        print(f"[MOG2] ★ Tier 1 triggered at frame {self.stable_count}")
+                    
+                    # Tier 2: Full classify (with GradCAM) - only if tier 1 didn't lock
+                    if self.stable_count >= self.full_stable_frames and self.state != self.STATE_LOCKED:
+                        should_full_classify = True
+                        self.state = self.STATE_LOCKED
+                        self.locked_bbox = current_bbox
+                        print(f"[MOG2] STABLE → LOCKED ★ Tier 2 full classification!")
+                else:
+                    # Object moved again - reset
+                    self.state = self.STATE_MOTION
+                    self.stable_count = 0
+                    self.early_triggered = False
+                    self.early_result = None
+                    print(f"[MOG2] STABLE → MOTION (shifted {shift:.1f}px)")
+                self.prev_bbox = current_bbox
+
+        elif self.state == self.STATE_LOCKED:
+            if current_bbox is None or total_area < self.min_area:
+                self.idle_count += 1
+                if self.idle_count >= self.idle_frames_required:
+                    self.state = self.STATE_IDLE
+                    self.prev_bbox = None
+                    self.stable_count = 0
+                    self.locked_result = None
+                    self.locked_bbox = None
+                    self.early_triggered = False
+                    self.early_result = None
+                    print(f"[MOG2] LOCKED → IDLE ★ Object removed")
+            else:
+                self.idle_count = 0
+                if self.locked_bbox:
+                    shift = self._calc_bbox_shift(self.locked_bbox, current_bbox)
+                    if shift > self.stable_threshold * 3:
+                        self.state = self.STATE_MOTION
+                        self.stable_count = 0
+                        self.locked_result = None
+                        self.locked_bbox = None
+                        self.early_triggered = False
+                        self.early_result = None
+                        print(f"[MOG2] LOCKED → MOTION (shift={shift:.1f})")
+
+        if prev_state != self.state:
+            print(f"[MOG2] State: {self.state.upper()}")
+
+        tier = None
+        if should_early_classify:
+            tier = 'early'
+        elif should_full_classify:
+            tier = 'full'
+
+        return {
+            'state': self.state,
+            'contour_area': int(total_area),
+            'stable_count': self.stable_count,
+            'bbox': current_bbox,
+            'should_early_classify': should_early_classify,
+            'should_full_classify': should_full_classify,
+            'warmup_progress': 100,
+            'tier': tier
+        }
+
+    def _calc_bbox_shift(self, bbox1, bbox2):
+        if bbox1 is None or bbox2 is None:
+            return float('inf')
+        cx1 = bbox1[0] + bbox1[2] / 2
+        cy1 = bbox1[1] + bbox1[3] / 2
+        cx2 = bbox2[0] + bbox2[2] / 2
+        cy2 = bbox2[1] + bbox2[3] / 2
+        return ((cx2 - cx1) ** 2 + (cy2 - cy1) ** 2) ** 0.5
+
+    def lock_early(self, result):
+        """Lock immediately from tier 1 if confidence is high enough."""
+        if result['confidence'] >= self.early_confidence_threshold:
+            self.state = self.STATE_LOCKED
+            self.locked_result = result
+            self.locked_bbox = self.prev_bbox
+            print(f"[MOG2] ★★ EARLY LOCK! {result['predicted_class']} "
+                  f"@ {result['confidence']}% (threshold={self.early_confidence_threshold}%)")
+            return True
+        else:
+            self.early_result = result
+            print(f"[MOG2] Tier 1 confidence too low ({result['confidence']}% < {self.early_confidence_threshold}%), waiting for Tier 2...")
+            return False
+
+    def set_locked_result(self, result):
+        self.locked_result = result
+
+    def get_locked_result(self):
+        return self.locked_result
+
+
+# Global state machine instance
+state_machine = BackgroundStateMachine()
+
+
+def classify_frame(model, pil_img, skip_gradcam=False, mog2_bbox=None):
     """Classify a single image frame from camera"""
     import time
     transform = get_transform(IMG_SIZE)
@@ -232,8 +517,8 @@ def classify_frame(model, pil_img, skip_gradcam=False):
             'confidence': round(top5_probs[0][i].item() * 100, 1)
         })
     
-    bbox = None
-    if not skip_gradcam:
+    bbox = mog2_bbox
+    if bbox is None and not skip_gradcam:
         input_for_cam = transform(pil_img).unsqueeze(0)
         
         start_cam = time.time()
@@ -870,6 +1155,93 @@ HTML_TEMPLATE = """
             animation: pulse-dot 1s ease-in-out infinite;
         }
 
+        /* MOG2 State Indicator */
+        .mog2-state-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            font-family: var(--font-display);
+            font-size: 0.65rem;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+        }
+
+        .mog2-state-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+
+        .mog2-state-bar[data-state='idle'] {
+            color: var(--text-muted);
+            border-color: rgba(100,116,139,0.3);
+        }
+        .mog2-state-bar[data-state='idle'] .mog2-state-dot {
+            background: var(--text-muted);
+        }
+
+        .mog2-state-bar[data-state='warmup'] {
+            color: var(--accent-blue);
+            border-color: rgba(59,130,246,0.3);
+        }
+        .mog2-state-bar[data-state='warmup'] .mog2-state-dot {
+            background: var(--accent-blue);
+            box-shadow: 0 0 6px var(--accent-blue);
+            animation: pulse-dot 0.8s ease-in-out infinite;
+        }
+
+        .mog2-state-bar[data-state='motion'] {
+            color: var(--neon-yellow);
+            border-color: rgba(255,214,0,0.3);
+        }
+        .mog2-state-bar[data-state='motion'] .mog2-state-dot {
+            background: var(--neon-yellow);
+            box-shadow: 0 0 6px var(--neon-yellow);
+            animation: pulse-dot 0.6s ease-in-out infinite;
+        }
+
+        .mog2-state-bar[data-state='stable'] {
+            color: #FF9800;
+            border-color: rgba(255,152,0,0.3);
+        }
+        .mog2-state-bar[data-state='stable'] .mog2-state-dot {
+            background: #FF9800;
+            box-shadow: 0 0 6px #FF9800;
+            animation: pulse-dot 0.4s ease-in-out infinite;
+        }
+
+        .mog2-state-bar[data-state='locked'] {
+            color: var(--neon-green);
+            border-color: rgba(10,255,0,0.3);
+            box-shadow: 0 0 12px rgba(10,255,0,0.1);
+        }
+        .mog2-state-bar[data-state='locked'] .mog2-state-dot {
+            background: var(--neon-green);
+            box-shadow: 0 0 8px var(--neon-green);
+        }
+
+        .mog2-progress {
+            width: 60px;
+            height: 4px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .mog2-progress-fill {
+            height: 100%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, var(--neon-cyan), var(--neon-green));
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
         .scan-toggle-btn {
             padding: 10px 24px;
             border-radius: 10px;
@@ -1040,9 +1412,12 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 <div class="camera-controls">
-                    <div class="realtime-indicator" id="realtimeIndicator">
-                        <span class="realtime-dot"></span>
-                        <span id="realtimeStatus">STANDBY</span>
+                    <div class="mog2-state-bar" id="mog2StateBar" data-state="idle">
+                        <span class="mog2-state-dot"></span>
+                        <span id="mog2StateText">STANDBY</span>
+                        <div class="mog2-progress" id="mog2Progress" style="display:none">
+                            <div class="mog2-progress-fill" id="mog2ProgressFill"></div>
+                        </div>
                     </div>
                     <button class="scan-toggle-btn" id="scanToggleBtn" onclick="toggleScanning()">
                         <i data-lucide="scan" style="width:16px;height:16px"></i>
@@ -1118,6 +1493,8 @@ HTML_TEMPLATE = """
         let lastFpsTime = Date.now();
         let frameCount = 0;
         let debugVisible = false;
+        let lastMog2State = 'idle';
+        let hasLockedResult = false;
 
         // ─── DOM ─────────────────────────────────────────────────────────────
         const video      = document.getElementById('cameraFeed');
@@ -1276,6 +1653,8 @@ HTML_TEMPLATE = """
             }
 
             isScanning = true;
+            lastMog2State = 'idle';
+            hasLockedResult = false;
 
             const btn = document.getElementById('scanToggleBtn');
             btn.classList.add('active');
@@ -1288,29 +1667,25 @@ HTML_TEMPLATE = """
             btn.insertBefore(newI, btn.firstChild);
             lucide.createIcons();
 
-            const indicator = document.getElementById('realtimeIndicator');
-            indicator.classList.add('scanning');
-            document.getElementById('realtimeStatus').textContent = 'SCANNING';
-            document.getElementById('cameraStatus').textContent = 'Scanning...';
+            document.getElementById('cameraStatus').textContent = 'MOG2 Active';
+            updateMog2UI('idle', 0);
 
-            dbg('Scanning started');
+            dbg('Scanning started (MOG2 mode)');
             scheduleNextDetect();
         }
 
         function scheduleNextDetect() {
             if (!isScanning) return;
-            autoDetect().finally(() => {
-                // BUG FIX #3: Always use .finally() so next frame is
-                // scheduled even if autoDetect threw an unhandled error.
+            processFrame().finally(() => {
                 if (isScanning) {
-                    scanInterval = setTimeout(scheduleNextDetect, 800);
+                    scanInterval = setTimeout(scheduleNextDetect, 30);
                 }
             });
         }
 
         function stopScanning() {
             isScanning = false;
-            isProcessing = false;   // BUG FIX #4: reset flag on stop
+            isProcessing = false;
             if (scanInterval) { clearTimeout(scanInterval); scanInterval = null; }
 
             const btn = document.getElementById('scanToggleBtn');
@@ -1324,8 +1699,7 @@ HTML_TEMPLATE = """
             btn.insertBefore(newI, btn.firstChild);
             lucide.createIcons();
 
-            document.getElementById('realtimeIndicator').classList.remove('scanning');
-            document.getElementById('realtimeStatus').textContent = 'STANDBY';
+            updateMog2UI('idle', 0);
             document.getElementById('cameraStatus').textContent = 'Camera Active';
             document.getElementById('fpsCounter').textContent = '-- fps';
 
@@ -1336,44 +1710,61 @@ HTML_TEMPLATE = """
             dbg('Scanning stopped');
         }
 
-        // ─── Frame Capture & API Call ─────────────────────────────────────────
-        async function autoDetect() {
-            if (isProcessing) {
-                dbg('Skipped: already processing');
-                return;
-            }
-            if (!isScanning || !stream) return;
+        // ─── MOG2 UI Update ────────────────────────────────────────────────
+        function updateMog2UI(state, stableCount) {
+            const stateBar = document.getElementById('mog2StateBar');
+            const stateText = document.getElementById('mog2StateText');
+            const progress = document.getElementById('mog2Progress');
+            const progressFill = document.getElementById('mog2ProgressFill');
 
-            // BUG FIX #5: Always verify readyState right before capture,
-            // not just at scan-start, because the camera may have changed.
-            if (!isVideoReady()) {
-                dbg(`Skipped: video not ready (readyState=${video.readyState} ${video.videoWidth}x${video.videoHeight})`);
-                return;
+            stateBar.setAttribute('data-state', state);
+
+            const stateLabels = {
+                'idle':    'STANDBY',
+                'warmup':  'LEARNING BG...',
+                'motion':  'MOTION DETECTED',
+                'stable':  'STABILIZING...',
+                'locked':  'LOCKED ★'
+            };
+            stateText.textContent = stateLabels[state] || state.toUpperCase();
+
+            // Show progress bar for warmup and stable
+            if (state === 'stable') {
+                progress.style.display = 'block';
+                const pct = Math.min(100, (stableCount / 7) * 100);
+                progressFill.style.width = pct + '%';
+            } else if (state === 'warmup') {
+                progress.style.display = 'block';
+            } else {
+                progress.style.display = 'none';
+                progressFill.style.width = '0%';
             }
+
+            lastMog2State = state;
+        }
+
+        // ─── Frame Capture & MOG2 Processing ──────────────────────────────────
+        async function processFrame() {
+            if (isProcessing) return;
+            if (!isScanning || !stream) return;
+            if (!isVideoReady()) return;
 
             isProcessing = true;
             try {
-                // Capture frame
                 canvas.width  = video.videoWidth;
                 canvas.height = video.videoHeight;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(video, 0, 0);
 
-                // BUG FIX #6: Validate the captured frame is not blank
-                // by checking that the canvas has valid dimensions.
-                if (canvas.width === 0 || canvas.height === 0) {
-                    dbg('Canvas is empty, skipping');
-                    return;
-                }
+                if (canvas.width === 0 || canvas.height === 0) return;
 
-                const imageData = canvas.toDataURL('image/jpeg', 0.8);
-                dbg(`Sending ${Math.round(imageData.length / 1024)}KB frame...`);
+                const imageData = canvas.toDataURL('image/jpeg', 0.6);
 
                 const t0 = performance.now();
-                const response = await fetch('/api/classify', {
+                const response = await fetch('/api/process_frame', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: imageData, realtime: true })
+                    body: JSON.stringify({ image: imageData })
                 });
 
                 if (!response.ok) {
@@ -1382,17 +1773,15 @@ HTML_TEMPLATE = """
                     return;
                 }
 
-                const result = await response.json();
+                const data = await response.json();
                 const elapsed = Math.round(performance.now() - t0);
 
-                if (result.error) {
-                    dbg('API error: ' + result.error);
+                if (data.error) {
+                    dbg('API error: ' + data.error);
                     return;
                 }
 
-                dbg(`${result.predicted_class} ${result.confidence}% (${elapsed}ms)`);
-
-                // FPS
+                // FPS counter
                 frameCount++;
                 const now = Date.now();
                 if (now - lastFpsTime >= 2000) {
@@ -1402,15 +1791,55 @@ HTML_TEMPLATE = """
                     lastFpsTime = now;
                 }
 
-                displayRealtimeResult(result);
+                // Update MOG2 state UI
+                if (data.state === 'warmup') {
+                    const progressFill = document.getElementById('mog2ProgressFill');
+                    progressFill.style.width = (data.warmup_progress || 0) + '%';
+                    updateMog2UI('warmup', 0);
+                    dbg(`MOG2 learning background... ${data.warmup_progress}%`);
+                    return;
+                }
+
+                updateMog2UI(data.state, data.stable_count || 0);
+                dbg(`[${data.state.toUpperCase()}] area=${data.contour_area} stable=${data.stable_count} tier=${data.tier || '-'} (${elapsed}ms)`);
+
+                // Handle state transitions
+                if (data.state === 'locked' && data.result) {
+                    if (!hasLockedResult) {
+                        hasLockedResult = true;
+                        displayRealtimeResult(data.result);
+                        // Scan line animation
+                        scanLine.classList.remove('active');
+                        void scanLine.offsetWidth;
+                        scanLine.classList.add('active');
+                        // Show tier info
+                        const tierLabel = data.tier === 'early' ? '⚡ EARLY LOCK' : '★ FULL LOCK';
+                        dbg(`${tierLabel}: ${data.result.predicted_class} ${data.result.confidence}%`);
+                    }
+                } else if (data.state === 'idle' && hasLockedResult) {
+                    // Object removed - clear result
+                    hasLockedResult = false;
+                    clearDetectionResult();
+                }
 
             } catch (err) {
                 dbg('Fetch error: ' + err.message);
-                console.error('[DETECT]', err);
+                console.error('[PROCESS]', err);
             } finally {
-                // BUG FIX #4 cont'd: always release the lock
                 isProcessing = false;
             }
+        }
+
+        // ─── Clear detection result when object is removed ────────────────────
+        function clearDetectionResult() {
+            document.getElementById('resultCard').classList.remove('detected');
+            document.getElementById('resultIdle').style.display = 'block';
+            document.getElementById('resultMain').style.display = 'none';
+            document.getElementById('top5Card').style.display = 'none';
+            document.getElementById('categoryBadge').classList.remove('visible');
+            const preview = document.getElementById('resultImgPreview');
+            if (preview) preview.remove();
+            dbg('Result cleared (object removed)');
         }
 
         // ─── UI Updates ───────────────────────────────────────────────────────
@@ -1571,6 +2000,17 @@ HTML_TEMPLATE = """
                 debugVisible = !debugVisible;
                 debugLog.style.display = debugVisible ? 'block' : 'none';
             }
+            // Press R to reset MOG2 background
+            if (e.code === 'KeyR') {
+                fetch('/api/reset_mog2', { method: 'POST' })
+                    .then(() => {
+                        hasLockedResult = false;
+                        clearDetectionResult();
+                        updateMog2UI('idle', 0);
+                        dbg('MOG2 background reset');
+                    })
+                    .catch(err => dbg('Reset error: ' + err.message));
+            }
         });
 
         // Đổi màu nền camera 
@@ -1633,10 +2073,93 @@ def api_classify():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/process_frame', methods=['POST'])
+def api_process_frame():
+    """Smart frame processing: MOG2 state machine + conditional AI classify."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON body received'}), 400
+
+        image_data = data.get('image', '')
+        if not image_data:
+            return jsonify({'error': 'No image data provided'}), 400
+
+        # Remove data URL prefix
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+
+        # Decode image
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame_bgr is None or frame_bgr.shape[0] < 10 or frame_bgr.shape[1] < 10:
+            return jsonify({'error': 'Invalid or too small image'}), 400
+
+        # Process through MOG2 state machine
+        sm_result = state_machine.process_frame(frame_bgr)
+
+        response = {
+            'state': sm_result['state'],
+            'contour_area': sm_result['contour_area'],
+            'stable_count': sm_result['stable_count'],
+            'warmup_progress': sm_result['warmup_progress'],
+            'tier': sm_result.get('tier'),
+        }
+
+        pil_img = None  # Lazy init
+
+        # Tier 1: Early classify (fast, no GradCAM)
+        if sm_result['should_early_classify']:
+            pil_img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+            ai_result = classify_frame(model, pil_img, skip_gradcam=True, mog2_bbox=sm_result['bbox'])
+            locked = state_machine.lock_early(ai_result)
+            
+            if locked:
+                response['state'] = 'locked'
+                response['result'] = ai_result
+                response['tier'] = 'early'
+                print(f"[API] ★★ EARLY LOCK: {ai_result['predicted_class'].upper()} "
+                      f"| {ai_result['confidence']}% (tier 1, no GradCAM)")
+            else:
+                response['tier'] = 'early_pending'
+
+        # Tier 2: Full classify (with MOG2 bbox, no GradCAM)
+        elif sm_result['should_full_classify']:
+            pil_img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+            ai_result = classify_frame(model, pil_img, skip_gradcam=True, mog2_bbox=sm_result['bbox'])
+            state_machine.set_locked_result(ai_result)
+            response['result'] = ai_result
+            response['tier'] = 'full'
+            print(f"[API] ★ FULL LOCK: {ai_result['predicted_class'].upper()} "
+                  f"| {ai_result['confidence']}% (tier 2, no GradCAM)")
+
+        elif sm_result['state'] == 'locked' and state_machine.get_locked_result():
+            response['result'] = state_machine.get_locked_result()
+
+        return jsonify(response)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/reset_mog2', methods=['POST'])
+def api_reset_mog2():
+    """Reset MOG2 background subtractor to relearn background."""
+    global state_machine
+    state_machine = BackgroundStateMachine()
+    print("[API] MOG2 State Machine reset by user")
+    return jsonify({'status': 'ok', 'message': 'MOG2 reset successfully'})
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  W.A.S.T.E. SCANNER - AI Waste Detection Camera")
     print("  Waste Analysis Scanner & Type Engine")
+    print("  + MOG2 Background Subtraction State Machine")
     print("=" * 60)
 
     if os.path.exists(MODEL_PATH):
@@ -1653,11 +2176,13 @@ if __name__ == "__main__":
 
     print()
     print("=" * 60)
-    print("  SCANNER ONLINE")
+    print("  SCANNER ONLINE (MOG2 Smart Detection)")
     print("  Open: http://localhost:9999")
     print("  Press SPACE to toggle scanning")
     print("  Press D    to toggle debug overlay")
+    print("  Press R    to reset MOG2 background")
     print("=" * 60)
     print()
 
-    app.run(debug=True, port=9999, use_reloader=False)
+    flask_host = os.environ.get('FLASK_HOST', '127.0.0.1')
+    app.run(host=flask_host, debug=True, port=9999, use_reloader=False)

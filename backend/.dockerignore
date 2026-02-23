@@ -1,0 +1,22 @@
+# Build output
+target/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Git
+.git
+.gitignore
+
+# OS
+.DS_Store
+
+# Secrets - uncomment if using volume mount instead of COPY
+# src/main/resources/serviceAccountKey.json
+
+# Misc
+*.log
+*.zip
+*.md
