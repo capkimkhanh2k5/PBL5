@@ -1,5 +1,6 @@
 package com.iotSmartTrash.controller;
 
+import com.iotSmartTrash.dto.TrashCategoryResponseDTO;
 import com.iotSmartTrash.model.TrashCategory;
 import com.iotSmartTrash.service.TrashCategoryService;
 import lombok.RequiredArgsConstructor;
@@ -9,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/categories")
@@ -19,8 +20,11 @@ public class TrashCategoryController {
     private final TrashCategoryService trashCategoryService;
 
     @GetMapping
-    public ResponseEntity<List<TrashCategory>> getAllCategories() throws ExecutionException, InterruptedException {
+    public ResponseEntity<List<TrashCategoryResponseDTO>> getAllCategories() {
         List<TrashCategory> categories = trashCategoryService.getAllCategories();
-        return ResponseEntity.ok(categories);
+        List<TrashCategoryResponseDTO> dtos = categories.stream()
+                .map(TrashCategoryResponseDTO::fromModel)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
     }
 }

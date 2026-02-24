@@ -1,6 +1,10 @@
 package com.iotSmartTrash.model;
 
 import com.google.cloud.Timestamp;
+import com.google.cloud.firestore.annotation.PropertyName;
+import com.iotSmartTrash.model.enums.AlertSeverity;
+import com.iotSmartTrash.model.enums.AlertStatus;
+import com.iotSmartTrash.model.enums.AlertType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -12,12 +16,23 @@ import lombok.NoArgsConstructor;
 @Builder
 public class Alert {
     private String id;
-    private String bin_id;
-    private String alert_type; // VD: 'FULL_BIN', 'HIGH_TEMP', 'LOW_BATTERY'
-    private String severity; // VD: 'CRITICAL', 'WARNING', 'INFO'
+
+    @PropertyName("bin_id")
+    private String binId;
+
+    @PropertyName("alert_type")
+    private AlertType alertType;
+
+    private AlertSeverity severity;
     private String message;
-    private String status; // 'NEW', 'RESOLVED'
-    private String resolved_by; // Tham chiếu đến UID người giải quyết
-    private Timestamp created_at;
-    private Timestamp resolved_at;
+    private AlertStatus status;
+
+    @PropertyName("resolved_by")
+    private String resolvedBy;
+
+    @PropertyName("created_at")
+    private Timestamp createdAt;
+
+    @PropertyName("resolved_at")
+    private Timestamp resolvedAt;
 }

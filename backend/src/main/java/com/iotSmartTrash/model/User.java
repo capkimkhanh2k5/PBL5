@@ -1,6 +1,8 @@
 package com.iotSmartTrash.model;
 
 import com.google.cloud.Timestamp;
+import com.google.cloud.firestore.annotation.PropertyName;
+import com.iotSmartTrash.model.enums.UserRole;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,7 +16,11 @@ public class User {
     private String uid;
     private String username;
     private String email;
-    private String role;
-    private String avatar_url;
-    private Timestamp created_at;
+    private UserRole role;
+
+    @PropertyName("avatar_url")
+    private String avatarUrl;
+
+    @PropertyName("created_at")
+    private Timestamp createdAt;
 }
