@@ -1,6 +1,7 @@
 package com.iotSmartTrash.model;
 
 import com.google.cloud.Timestamp;
+import com.google.cloud.firestore.annotation.PropertyName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,10 +12,21 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class ClassificationLog {
-    private String log_id;
-    private String bin_id;
-    private String image_url;
-    private String classification_result;
-    private Double confidence_score;
-    private Timestamp classified_at;
+    @PropertyName("log_id")
+    private String logId;
+
+    @PropertyName("bin_id")
+    private String binId;
+
+    @PropertyName("image_url")
+    private String imageUrl;
+
+    @PropertyName("classification_result")
+    private String classificationResult;
+
+    @PropertyName("confidence_score")
+    private Double confidenceScore;
+
+    @PropertyName("classified_at")
+    private Timestamp classifiedAt;
 }
