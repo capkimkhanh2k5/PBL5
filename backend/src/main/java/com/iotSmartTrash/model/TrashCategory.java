@@ -1,5 +1,6 @@
 package com.iotSmartTrash.model;
 
+import com.google.cloud.firestore.annotation.PropertyName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,6 +14,9 @@ public class TrashCategory {
     private String id;
     private String name;
     private String type;
-    private String icon_url;
+
+    @PropertyName("icon_url")
+    private String iconUrl;
+
     private String description;
 }

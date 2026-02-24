@@ -15,14 +15,13 @@ public class ManualTriggerController {
     private final SensorLogScheduler scheduler;
 
     /**
-     * API Test
-     * Kích hoạt ép chạy tính toán dữ liệu 6 tiếng ngay lập tức mà không cần đợi đến
-     * 0h/6h/12h/18h
+     * Chạy async trong background thread, HTTP trả về ngay lập tức.
      */
     @PostMapping("/aggregate-sensor-logs")
     public ResponseEntity<String> triggerAggregateLogs() {
-        scheduler.aggregateSensorLogs();
-        return ResponseEntity
-                .ok("Đã gửi luồng chạy ngầm tổng hợp log cảm biến. Kiểm tra Terminal Console để xem tiến trình.");
+        // Virtual Thread
+        Thread.ofVirtual().name("scheduler-trigger").start(scheduler::aggregateSensorLogs);
+        return ResponseEntity.accepted()
+                .body("Triggered aggregate sensor logs in background. Read console to see progress.");
     }
 }

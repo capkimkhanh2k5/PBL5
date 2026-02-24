@@ -1,13 +1,13 @@
 package com.iotSmartTrash.scheduler;
 
 import com.google.cloud.firestore.Firestore;
-import com.google.firebase.cloud.FirestoreClient;
 import com.google.firebase.database.*;
 import com.iotSmartTrash.model.BinSensorLog;
+import com.iotSmartTrash.model.enums.BinPeriod;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -17,36 +17,34 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
-@Service
+@Component // ← Fix: đổi từ @Service sang @Component (Scheduler không phải Service)
 @Slf4j
 @RequiredArgsConstructor
 public class SensorLogScheduler {
 
     private static final long LOG_TTL_MS = 24 * 60 * 60 * 1000L; // 24 giờ
 
+    private final Firestore firestore; // ← Fix: inject qua DI thay vì FirestoreClient.getFirestore()
+
     /**
-     * Chạy mỗi 6 tiếng một lần (00:00, 06:00, 12:00, 18:00)
-     * Aggregate (tổng hợp) 1 loạt dữ liệu từ Realtime DB sang Firestore
+     * Chạy mỗi 6 tiếng (00:00, 06:00, 12:00, 18:00) — tổng hợp RTDB → Firestore
      */
     @Scheduled(cron = "0 0 0,6,12,18 * * *")
     public void aggregateSensorLogs() {
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
-        String period = getPeriodLabel(now.getHour());
+        BinPeriod period = BinPeriod.fromHour(now.getHour());
         String date = now.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
-        log.info("[Scheduler] Start aggregate Sensor Logs for kỳ {} ngày {}", period, date);
+        log.info("[Scheduler] Start aggregate Sensor Logs — period={}, date={}", period, date);
 
         DatabaseReference rtdbRef = FirebaseDatabase.getInstance().getReference("bin_sensor_logs");
-        Firestore dbFirestore = FirestoreClient.getFirestore();
-
-        // Sử dụng CountDownLatch để chờ Firebase Async callback hoàn thành
         CountDownLatch latch = new CountDownLatch(1);
 
         rtdbRef.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override
             public void onDataChange(DataSnapshot snapshot) {
                 if (!snapshot.exists()) {
-                    log.info("Not found data in Realtime DB.");
+                    log.info("[Scheduler] Not found data in Realtime DB.");
                     latch.countDown();
                     return;
                 }
@@ -56,25 +54,27 @@ public class SensorLogScheduler {
                     List<Map<String, Object>> logs = new ArrayList<>();
 
                     for (DataSnapshot logSnap : binSnap.getChildren()) {
-                        logs.add((Map<String, Object>) logSnap.getValue());
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> logData = (Map<String, Object>) logSnap.getValue();
+                        if (logData != null)
+                            logs.add(logData);
                     }
 
                     if (logs.isEmpty())
                         continue;
 
                     BinSensorLog stats = computeStats(binId, logs, period, date);
-                    String docId = binId + "_" + date + "_" + period;
+                    String docId = binId + "_" + date + "_" + period.name();
 
-                    // Lưu vào Firestore
-                    dbFirestore.collection("bin_sensor_logs").document(docId).set(stats);
-                    log.info("Saved 6 hours aggregate for bin: {}", binId);
+                    firestore.collection("bin_sensor_logs").document(docId).set(stats);
+                    log.info("[Scheduler] Saved 6h aggregate for bin: {}", binId);
                 }
                 latch.countDown();
             }
 
             @Override
             public void onCancelled(DatabaseError error) {
-                log.error("Error reading Realtime DB: ", error.toException());
+                log.error("[Scheduler] Error reading Realtime DB: ", error.toException());
                 latch.countDown();
             }
         });
@@ -84,17 +84,17 @@ public class SensorLogScheduler {
             log.info("[Scheduler] Completed aggregateSensorLogs.");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.warn("[Scheduler] aggregateSensorLogs bị interrupted.");
         }
     }
 
     /**
-     * Dọn dẹp dữ liệu cũ hơn 24h trong Realtime DB. Chạy 30 phút sau khi Aggregate
-     * xong.
+     * Dọn dẹp log cũ hơn 24h trong Realtime DB. Chạy 30 phút sau aggregate.
      */
     @Scheduled(cron = "0 30 0,6,12,18 * * *")
     public void cleanupRealtimeLogs() {
         long cutoff = System.currentTimeMillis() - LOG_TTL_MS;
-        log.info("[Scheduler] Start cleanup old logs {}", cutoff);
+        log.info("[Scheduler] Start cleanup old logs before {}", cutoff);
 
         DatabaseReference rtdbRef = FirebaseDatabase.getInstance().getReference("bin_sensor_logs");
         CountDownLatch latch = new CountDownLatch(1);
@@ -110,6 +110,7 @@ public class SensorLogScheduler {
                 int deletedCount = 0;
                 for (DataSnapshot binSnap : snapshot.getChildren()) {
                     for (DataSnapshot logSnap : binSnap.getChildren()) {
+                        @SuppressWarnings("unchecked")
                         Map<String, Object> logData = (Map<String, Object>) logSnap.getValue();
                         if (logData != null && logData.containsKey("recorded_at")) {
                             long recordedAt = ((Number) logData.get("recorded_at")).longValue();
@@ -126,7 +127,7 @@ public class SensorLogScheduler {
 
             @Override
             public void onCancelled(DatabaseError error) {
-                log.error("Error: ", error.toException());
+                log.error("[Scheduler] Error cleanup: ", error.toException());
                 latch.countDown();
             }
         });
@@ -138,22 +139,11 @@ public class SensorLogScheduler {
         }
     }
 
-    // Helper Functions
-    private String getPeriodLabel(int hour) {
-        if (hour < 6)
-            return "00h";
-        if (hour < 12)
-            return "06h";
-        if (hour < 18)
-            return "12h";
-        return "18h";
-    }
+    // ── Helper methods ─────────────────────────────────────────
 
-    private BinSensorLog computeStats(String binId, List<Map<String, Object>> logs, String period, String date) {
-        double sumTemp = 0;
-        double minTemp = Double.MAX_VALUE;
-        double maxTemp = Double.MIN_VALUE;
-
+    private BinSensorLog computeStats(String binId, List<Map<String, Object>> logs,
+            BinPeriod period, String date) {
+        double sumTemp = 0, minTemp = Double.MAX_VALUE, maxTemp = Double.MIN_VALUE;
         long sumBattery = 0, sumOrg = 0, sumRec = 0, sumNon = 0, sumHaz = 0;
 
         for (Map<String, Object> log : logs) {
@@ -172,35 +162,30 @@ public class SensorLogScheduler {
         }
 
         int n = logs.size();
-
         return BinSensorLog.builder()
-                .bin_id(binId)
+                .binId(binId)
                 .period(period)
                 .date(date)
-                .avg_temperature(Math.round((sumTemp / n) * 10.0) / 10.0)
-                .min_temperature(minTemp)
-                .max_temperature(maxTemp)
-                .avg_battery((int) (sumBattery / n))
-                .avg_fill_organic((int) (sumOrg / n))
-                .avg_fill_recycle((int) (sumRec / n))
-                .avg_fill_non_recycle((int) (sumNon / n))
-                .avg_fill_hazardous((int) (sumHaz / n))
-                .sample_count(n)
-                .recorded_at(com.google.cloud.Timestamp.now())
+                .avgTemperature(Math.round((sumTemp / n) * 10.0) / 10.0)
+                .minTemperature(minTemp)
+                .maxTemperature(maxTemp)
+                .avgBattery((int) (sumBattery / n))
+                .avgFillOrganic((int) (sumOrg / n))
+                .avgFillRecycle((int) (sumRec / n))
+                .avgFillNonRecycle((int) (sumNon / n))
+                .avgFillHazardous((int) (sumHaz / n))
+                .sampleCount(n)
+                .recordedAt(com.google.cloud.Timestamp.now())
                 .build();
     }
 
     private double getDouble(Map<String, Object> map, String key) {
         Object val = map.get(key);
-        if (val instanceof Number)
-            return ((Number) val).doubleValue();
-        return 0.0;
+        return val instanceof Number ? ((Number) val).doubleValue() : 0.0;
     }
 
     private long getLong(Map<String, Object> map, String key) {
         Object val = map.get(key);
-        if (val instanceof Number)
-            return ((Number) val).longValue();
-        return 0L;
+        return val instanceof Number ? ((Number) val).longValue() : 0L;
     }
 }

@@ -7,3 +7,13 @@ spring:
 
 firebase:
   service-account: classpath:serviceAccountKey.json
+  database-url: https://pbl5-f21e6-default-rtdb.asia-southeast1.firebasedatabase.app
+  storage-bucket: pbl5-f21e6.appspot.com
+
+iot:
+  # Thay đổi key này trước khi deploy production
+  api-key: iot-secret-key-pbl5
+
+cors:
+  # Danh sách domain được phép gọi API (phân cách bằng dấu phẩy)
+  allowed-origins: http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000
