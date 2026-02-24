@@ -1,6 +1,7 @@
 package com.iotSmartTrash.config;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -13,62 +14,63 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final FirebaseTokenFilter firebaseTokenFilter;
+        private final FirebaseTokenFilter firebaseTokenFilter;
+        private final IoTApiKeyFilter ioTApiKeyFilter;
 
-    @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http
-                // Tắt CSRF, bật CORS vì chương trình sử dụng JWT Token (Bearer Token)
-                .csrf(csrf -> csrf.disable())
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+        /**
+         * Đọc từ application.yml
+         */
+        @Value("${cors.allowed-origins}")
+        private List<String> allowedOrigins;
 
-                // Không lưu session trên Session Cookie của Server
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        @Bean
+        public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+                http
+                                .csrf(csrf -> csrf.disable())
+                                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                                .sessionManagement(session -> session
+                                                .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                                .authorizeHttpRequests(auth -> auth
+                                                // Public endpoints — không cần token
+                                                .requestMatchers("/api/v1/health").permitAll()
+                                                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
 
-                // Quy tắc Permission cho API
-                .authorizeHttpRequests(auth -> auth
-                        // Cho phép gọi thẳng không cần Token
-                        .requestMatchers("/api/v1/health").permitAll()
-                        .requestMatchers("/api/v1/trigger/**").permitAll() // Test CronJob Public
-                        .requestMatchers("/api/v1/system/classification-logs").permitAll() // Cho IoT Pi Push Ảnh
-                        .requestMatchers("/api/v1/system/alerts").permitAll() // Cho IoT Pi Tạo Cảnh báo
-                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll() // Mở Swagger UI để Test
+                                                // IoT endpoints — được bảo vệ bởi IoTApiKeyFilter (X-IoT-API-Key)
+                                                .requestMatchers("/api/v1/system/classification-logs").permitAll()
+                                                .requestMatchers("/api/v1/system/alerts").permitAll()
 
-                        // Bắt buộc tất cả các API còn lại phải có Bearer Token
-                        .anyRequest().authenticated())
-                // Chèn Gác cổng Firebase của chúng ta vào đầu bảo vệ
-                .addFilterBefore(firebaseTokenFilter, UsernamePasswordAuthenticationFilter.class);
+                                                // Dev/test endpoint — chỉ mở trong môi trường development
+                                                .requestMatchers("/api/v1/trigger/**").permitAll()
 
-        return http.build();
-    }
+                                                // Tất cả còn lại yêu cầu Firebase Bearer Token
+                                                .anyRequest().authenticated())
 
-    /**
-     * Cấu hình CORS hoàn chỉnh cho phép các giao diện Web/Mobile bên ngoài gọi vào
-     * Backend
-     * Tránh lỗi "No Access-Control-Allow-Origin header is present" trên Browser.
-     */
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
+                                // IoTApiKeyFilter chạy TRƯỚC FirebaseTokenFilter
+                                .addFilterBefore(ioTApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
+                                .addFilterBefore(firebaseTokenFilter, UsernamePasswordAuthenticationFilter.class);
 
-        // Cho phép các tên miền Frontend
-        configuration.setAllowedOrigins(
-                Arrays.asList("http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000"));
+                return http.build();
+        }
 
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        @Bean
+        public CorsConfigurationSource corsConfigurationSource() {
+                CorsConfiguration configuration = new CorsConfiguration();
+                configuration.setAllowedOrigins(allowedOrigins);
+                configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+                configuration
+                                .setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Cache-Control",
+                                                "X-IoT-API-Key"));
+                configuration.setAllowCredentials(true);
 
-        // Cho phép gửi kèm các Type Header thông dụng
-        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Cache-Control"));
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        // Áp dụng bộ luật CORS trên cho TOÀN BỘ các đường dẫn API ("/**")
-        source.registerCorsConfiguration("/**", configuration);
-        return source;
-    }
+                UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+                source.registerCorsConfiguration("/**", configuration);
+                return source;
+        }
 }

@@ -1,70 +1,88 @@
 package com.iotSmartTrash.service;
 
-import com.google.api.core.ApiFuture;
 import com.google.cloud.firestore.DocumentReference;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
-import com.google.cloud.firestore.WriteResult;
-import com.google.firebase.cloud.FirestoreClient;
+import com.iotSmartTrash.exception.ResourceNotFoundException;
+import com.iotSmartTrash.exception.ServiceException;
 import com.iotSmartTrash.model.BinMetadata;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 
 @Service
+@RequiredArgsConstructor
 public class BinMetadataService {
 
     private static final String COLLECTION_NAME = "bins_metadata";
 
-    public List<BinMetadata> getAllBins() throws ExecutionException, InterruptedException {
-        Firestore dbFirestore = FirestoreClient.getFirestore();
-        List<BinMetadata> bins = new ArrayList<>();
+    private final Firestore firestore;
 
-        for (QueryDocumentSnapshot document : dbFirestore.collection(COLLECTION_NAME).get().get().getDocuments()) {
-            BinMetadata bin = document.toObject(BinMetadata.class);
-            bin.setId(document.getId());
-            bins.add(bin);
+    public List<BinMetadata> getAllBins() {
+        try {
+            List<BinMetadata> bins = new ArrayList<>();
+            for (QueryDocumentSnapshot doc : firestore.collection(COLLECTION_NAME).get().get().getDocuments()) {
+                BinMetadata bin = doc.toObject(BinMetadata.class);
+                bin.setId(doc.getId());
+                bins.add(bin);
+            }
+            return bins;
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot get list of bins", e);
         }
-        return bins;
     }
 
-    public BinMetadata getBinById(String documentId) throws ExecutionException, InterruptedException {
-        Firestore dbFirestore = FirestoreClient.getFirestore();
-        DocumentReference documentReference = dbFirestore.collection(COLLECTION_NAME).document(documentId);
-        com.google.cloud.firestore.DocumentSnapshot document = documentReference.get().get();
-
-        if (document.exists()) {
-            BinMetadata bin = document.toObject(BinMetadata.class);
-            bin.setId(document.getId());
+    public BinMetadata getBinById(String binId) {
+        try {
+            com.google.cloud.firestore.DocumentSnapshot doc = firestore.collection(COLLECTION_NAME).document(binId)
+                    .get().get();
+            if (!doc.exists()) {
+                throw new ResourceNotFoundException("Bin", binId);
+            }
+            BinMetadata bin = doc.toObject(BinMetadata.class);
+            bin.setId(doc.getId());
             return bin;
+        } catch (ResourceNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot get bin information: " + binId, e);
         }
-        return null; // Không tìm thấy
     }
 
-    public String createBin(BinMetadata bin) throws ExecutionException, InterruptedException {
-        Firestore dbFirestore = FirestoreClient.getFirestore();
-        DocumentReference docRef;
-        if (bin.getId() != null && !bin.getId().isEmpty()) {
-            docRef = dbFirestore.collection(COLLECTION_NAME).document(bin.getId());
-        } else {
-            docRef = dbFirestore.collection(COLLECTION_NAME).document();
+    /** Tạo mới bin — ID luôn do Firestore auto-generate, không cho client set ID */
+    public String createBin(BinMetadata bin) {
+        try {
+            DocumentReference docRef = firestore.collection(COLLECTION_NAME).document();
+            bin.setId(docRef.getId());
+            bin.setInstalledAt(com.google.cloud.Timestamp.now());
+            return docRef.set(bin).get().getUpdateTime().toString();
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot create bin", e);
         }
-
-        ApiFuture<WriteResult> collectionsApiFuture = docRef.set(bin);
-        return collectionsApiFuture.get().getUpdateTime().toString();
     }
 
-    public String updateBin(String binId, BinMetadata bin) throws ExecutionException, InterruptedException {
-        Firestore dbFirestore = FirestoreClient.getFirestore();
-        ApiFuture<WriteResult> collectionsApiFuture = dbFirestore.collection(COLLECTION_NAME).document(binId).set(bin);
-        return collectionsApiFuture.get().getUpdateTime().toString();
+    public String updateBin(String binId, BinMetadata bin) {
+        try {
+            return firestore.collection(COLLECTION_NAME).document(binId)
+                    .set(bin).get().getUpdateTime().toString();
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot update bin: " + binId, e);
+        }
     }
 
-    public String deleteBin(String binId) throws ExecutionException, InterruptedException {
-        Firestore dbFirestore = FirestoreClient.getFirestore();
-        ApiFuture<WriteResult> writeResult = dbFirestore.collection(COLLECTION_NAME).document(binId).delete();
-        return writeResult.get().getUpdateTime().toString();
+    public String deleteBin(String binId) {
+        try {
+            return firestore.collection(COLLECTION_NAME).document(binId)
+                    .delete().get().getUpdateTime().toString();
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot delete bin: " + binId, e);
+        }
     }
 }
