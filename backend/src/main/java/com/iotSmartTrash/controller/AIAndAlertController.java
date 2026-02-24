@@ -11,6 +11,10 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.MediaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.iotSmartTrash.service.FirebaseStorageService;
 
 @RestController
 @RequestMapping("/api/v1/system")
@@ -19,13 +23,25 @@ public class AIAndAlertController {
 
     private final ClassificationLogService aiLogger;
     private final AlertService alertService;
+    private final FirebaseStorageService storageService;
+    private final ObjectMapper objectMapper;
 
-    // Nhận log từ Raspberry Pi Camera Model chuyển về
-    @PostMapping("/classification-logs")
-    public ResponseEntity<String> saveAILog(@RequestBody ClassificationLog log)
-            throws ExecutionException, InterruptedException {
-        String updateTime = aiLogger.saveLog(log);
-        return ResponseEntity.ok("AI Data received and saved at " + updateTime);
+    // Nhận log và hình ảnh từ Raspberry Pi Camera Model chuyển về
+    @PostMapping(value = "/classification-logs", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<String> saveAILog(
+            @RequestPart("file") MultipartFile file,
+            @RequestPart("log") String logJson) {
+        try {
+            ClassificationLog log = objectMapper.readValue(logJson, ClassificationLog.class);
+            String imageUrl = storageService.uploadImage(file);
+            log.setImage_url(imageUrl);
+
+            String updateTime = aiLogger.saveLog(log);
+            return ResponseEntity.ok("AI Data received and saved at " + updateTime);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error processing classification log: " + e.getMessage());
+        }
     }
 
     // Lấy toàn bộ cảnh báo trên Admin Portal

@@ -40,6 +40,7 @@ public class FirebaseConfig {
             FirebaseOptions options = FirebaseOptions.builder()
                     .setCredentials(GoogleCredentials.fromStream(serviceAccount))
                     .setDatabaseUrl("https://pbl5-f21e6-default-rtdb.asia-southeast1.firebasedatabase.app")
+                    .setStorageBucket("pbl5-f21e6.appspot.com")
                     .build();
 
             if (FirebaseApp.getApps().isEmpty()) {
