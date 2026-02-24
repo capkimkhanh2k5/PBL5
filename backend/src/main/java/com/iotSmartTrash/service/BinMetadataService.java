@@ -1,5 +1,7 @@
 package com.iotSmartTrash.service;
 
+import com.google.cloud.Timestamp;
+import com.google.cloud.firestore.DocumentSnapshot;
 import com.google.cloud.firestore.DocumentReference;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
@@ -11,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 @Service
 @RequiredArgsConstructor
@@ -29,15 +32,17 @@ public class BinMetadataService {
                 bins.add(bin);
             }
             return bins;
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot get list of bins", e);
+            throw new ServiceException("Cannot get list of bins: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot get list of bins", e.getCause());
         }
     }
 
     public BinMetadata getBinById(String binId) {
         try {
-            com.google.cloud.firestore.DocumentSnapshot doc = firestore.collection(COLLECTION_NAME).document(binId)
+            DocumentSnapshot doc = firestore.collection(COLLECTION_NAME).document(binId)
                     .get().get();
             if (!doc.exists()) {
                 throw new ResourceNotFoundException("Bin", binId);
@@ -47,22 +52,29 @@ public class BinMetadataService {
             return bin;
         } catch (ResourceNotFoundException e) {
             throw e;
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot get bin information: " + binId, e);
+            throw new ServiceException("Cannot get bin information: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot get bin information: " + binId, e.getCause());
         }
     }
 
-    /** Tạo mới bin — ID luôn do Firestore auto-generate, không cho client set ID */
+    /**
+     * Create a new bin — ID is always Firestore auto-generated, clients cannot set
+     * it
+     */
     public String createBin(BinMetadata bin) {
         try {
             DocumentReference docRef = firestore.collection(COLLECTION_NAME).document();
             bin.setId(docRef.getId());
-            bin.setInstalledAt(com.google.cloud.Timestamp.now());
+            bin.setInstalledAt(Timestamp.now());
             return docRef.set(bin).get().getUpdateTime().toString();
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot create bin", e);
+            throw new ServiceException("Cannot create bin: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot create bin", e.getCause());
         }
     }
 
@@ -70,9 +82,11 @@ public class BinMetadataService {
         try {
             return firestore.collection(COLLECTION_NAME).document(binId)
                     .set(bin).get().getUpdateTime().toString();
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot update bin: " + binId, e);
+            throw new ServiceException("Cannot update bin: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot update bin: " + binId, e.getCause());
         }
     }
 
@@ -80,9 +94,11 @@ public class BinMetadataService {
         try {
             return firestore.collection(COLLECTION_NAME).document(binId)
                     .delete().get().getUpdateTime().toString();
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot delete bin: " + binId, e);
+            throw new ServiceException("Cannot delete bin: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot delete bin: " + binId, e.getCause());
         }
     }
 }
