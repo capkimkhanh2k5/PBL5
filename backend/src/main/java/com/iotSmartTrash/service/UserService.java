@@ -1,6 +1,7 @@
 package com.iotSmartTrash.service;
 
 import com.google.cloud.firestore.DocumentReference;
+import com.google.cloud.firestore.DocumentSnapshot;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
 import com.iotSmartTrash.exception.ResourceNotFoundException;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 @Service
 @RequiredArgsConstructor
@@ -29,16 +31,18 @@ public class UserService {
                 users.add(user);
             }
             return users;
-        } catch (Exception e) {
-            Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot get list of users", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt(); // restore interrupt flag
+            throw new ServiceException("Cannot get list of users: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot get list of users", e.getCause());
         }
     }
 
     public User getUserById(String uid) {
         try {
             DocumentReference docRef = firestore.collection(COLLECTION_NAME).document(uid);
-            com.google.cloud.firestore.DocumentSnapshot doc = docRef.get().get();
+            DocumentSnapshot doc = docRef.get().get();
             if (!doc.exists()) {
                 throw new ResourceNotFoundException("User", uid);
             }
@@ -47,9 +51,11 @@ public class UserService {
             return user;
         } catch (ResourceNotFoundException e) {
             throw e;
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot get user information: " + uid, e);
+            throw new ServiceException("Cannot get user information: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot get user information: " + uid, e.getCause());
         }
     }
 
@@ -60,9 +66,11 @@ public class UserService {
                     .get()
                     .getUpdateTime()
                     .toString();
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot update role for user: " + uid, e);
+            throw new ServiceException("Cannot update role for user: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot update role for user: " + uid, e.getCause());
         }
     }
 }

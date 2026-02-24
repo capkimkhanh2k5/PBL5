@@ -1,5 +1,6 @@
 package com.iotSmartTrash.scheduler;
 
+import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.Firestore;
 import com.google.firebase.database.*;
 import com.iotSmartTrash.model.BinSensorLog;
@@ -64,7 +65,7 @@ public class SensorLogScheduler {
                         continue;
 
                     BinSensorLog stats = computeStats(binId, logs, period, date);
-                    String docId = binId + "_" + date + "_" + period.name();
+                    String docId = binId + "_" + date + "_" + period.toLabel();
 
                     firestore.collection("bin_sensor_logs").document(docId).set(stats);
                     log.info("[Scheduler] Saved 6h aggregate for bin: {}", binId);
@@ -175,7 +176,7 @@ public class SensorLogScheduler {
                 .avgFillNonRecycle((int) (sumNon / n))
                 .avgFillHazardous((int) (sumHaz / n))
                 .sampleCount(n)
-                .recordedAt(com.google.cloud.Timestamp.now())
+                .recordedAt(Timestamp.now())
                 .build();
     }
 

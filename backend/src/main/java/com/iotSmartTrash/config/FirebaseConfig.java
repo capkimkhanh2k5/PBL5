@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import jakarta.annotation.PostConstruct;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.InputStream;
 
 @Configuration
@@ -30,7 +32,7 @@ public class FirebaseConfig {
             InputStream serviceAccount = resolveServiceAccount();
 
             if (serviceAccount == null) {
-                System.err.println("Not found file serviceAccountKey.json");
+                System.err.println("serviceAccountKey.json file not found");
                 return;
             }
 
@@ -42,7 +44,7 @@ public class FirebaseConfig {
 
             if (FirebaseApp.getApps().isEmpty()) {
                 FirebaseApp.initializeApp(options);
-                System.out.println("Firebase Admin SDK generated completed!");
+                System.out.println("Firebase Admin SDK initialization completed!");
             }
         } catch (Exception e) {
             System.err.println("Firebase init error: " + e.getMessage());
@@ -59,9 +61,9 @@ public class FirebaseConfig {
         if (serviceAccountPath.startsWith("file:")) {
             String filePath = serviceAccountPath.substring(5);
             try {
-                return new java.io.FileInputStream(filePath);
-            } catch (java.io.FileNotFoundException e) {
-                System.err.println("Not found file: " + filePath);
+                return new FileInputStream(filePath);
+            } catch (FileNotFoundException e) {
+                System.err.println("File not found: " + filePath);
                 return null;
             }
         } else if (serviceAccountPath.startsWith("classpath:")) {

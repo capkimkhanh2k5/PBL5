@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 @Service
 @RequiredArgsConstructor
@@ -27,9 +28,11 @@ public class TrashCategoryService {
                 categories.add(category);
             }
             return categories;
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot get list of trash categories", e);
+            throw new ServiceException("Cannot get list of trash categories: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot get list of trash categories", e.getCause());
         }
     }
 }
