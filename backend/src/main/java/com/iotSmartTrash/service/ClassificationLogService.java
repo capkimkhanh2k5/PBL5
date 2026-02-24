@@ -1,26 +1,29 @@
 package com.iotSmartTrash.service;
 
-import com.google.api.core.ApiFuture;
 import com.google.cloud.firestore.DocumentReference;
 import com.google.cloud.firestore.Firestore;
-import com.google.cloud.firestore.WriteResult;
-import com.google.firebase.cloud.FirestoreClient;
+import com.iotSmartTrash.exception.ServiceException;
 import com.iotSmartTrash.model.ClassificationLog;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import java.util.concurrent.ExecutionException;
 
 @Service
+@RequiredArgsConstructor
 public class ClassificationLogService {
 
     private static final String COLLECTION_NAME = "classification_logs";
 
-    public String saveLog(ClassificationLog log) throws ExecutionException, InterruptedException {
-        Firestore dbFirestore = FirestoreClient.getFirestore();
-        DocumentReference docRef = dbFirestore.collection(COLLECTION_NAME).document();
-        log.setLog_id(docRef.getId()); // Tự sinh ID
-        log.setClassified_at(com.google.cloud.Timestamp.now());
+    private final Firestore firestore;
 
-        ApiFuture<WriteResult> collectionsApiFuture = docRef.set(log);
-        return collectionsApiFuture.get().getUpdateTime().toString();
+    public String saveLog(ClassificationLog log) {
+        try {
+            DocumentReference docRef = firestore.collection(COLLECTION_NAME).document();
+            log.setLogId(docRef.getId());
+            log.setClassifiedAt(com.google.cloud.Timestamp.now());
+            return docRef.set(log).get().getUpdateTime().toString();
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot save classification log", e);
+        }
     }
 }

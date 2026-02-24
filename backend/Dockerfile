@@ -1,7 +1,7 @@
 # ============================================
 # Stage 1: Build with Maven
 # ============================================
-FROM maven:3.9-eclipse-temurin-17 AS build
+FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /app
 
 # Cache dependencies first
@@ -15,7 +15,7 @@ RUN mvn package -DskipTests -B
 # ============================================
 # Stage 2: Runtime (Ubuntu Jammy - supports ARM64/Apple Silicon)
 # ============================================
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:21-jre-jammy
 
 # Security: non-root user
 RUN groupadd -g 1001 appgroup && \

@@ -1,52 +1,68 @@
 package com.iotSmartTrash.service;
 
-import com.google.api.core.ApiFuture;
 import com.google.cloud.firestore.DocumentReference;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
-import com.google.cloud.firestore.WriteResult;
-import com.google.firebase.cloud.FirestoreClient;
+import com.iotSmartTrash.exception.ResourceNotFoundException;
+import com.iotSmartTrash.exception.ServiceException;
 import com.iotSmartTrash.model.User;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 
 @Service
+@RequiredArgsConstructor
 public class UserService {
 
     private static final String COLLECTION_NAME = "users";
 
-    public List<User> getAllUsers() throws ExecutionException, InterruptedException {
-        Firestore dbFirestore = FirestoreClient.getFirestore();
-        List<User> users = new ArrayList<>();
+    private final Firestore firestore;
 
-        for (QueryDocumentSnapshot document : dbFirestore.collection(COLLECTION_NAME).get().get().getDocuments()) {
-            User user = document.toObject(User.class);
-            user.setUid(document.getId());
-            users.add(user);
+    public List<User> getAllUsers() {
+        try {
+            List<User> users = new ArrayList<>();
+            for (QueryDocumentSnapshot doc : firestore.collection(COLLECTION_NAME).get().get().getDocuments()) {
+                User user = doc.toObject(User.class);
+                user.setUid(doc.getId());
+                users.add(user);
+            }
+            return users;
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot get list of users", e);
         }
-        return users;
     }
 
-    public User getUserById(String uid) throws ExecutionException, InterruptedException {
-        Firestore dbFirestore = FirestoreClient.getFirestore();
-        DocumentReference documentReference = dbFirestore.collection(COLLECTION_NAME).document(uid);
-        com.google.cloud.firestore.DocumentSnapshot document = documentReference.get().get();
-
-        if (document.exists()) {
-            User user = document.toObject(User.class);
-            user.setUid(document.getId());
+    public User getUserById(String uid) {
+        try {
+            DocumentReference docRef = firestore.collection(COLLECTION_NAME).document(uid);
+            com.google.cloud.firestore.DocumentSnapshot doc = docRef.get().get();
+            if (!doc.exists()) {
+                throw new ResourceNotFoundException("User", uid);
+            }
+            User user = doc.toObject(User.class);
+            user.setUid(doc.getId());
             return user;
+        } catch (ResourceNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot get user information: " + uid, e);
         }
-        return null;
     }
 
-    public String updateUserRole(String uid, String role) throws ExecutionException, InterruptedException {
-        Firestore dbFirestore = FirestoreClient.getFirestore();
-        ApiFuture<WriteResult> collectionsApiFuture = dbFirestore.collection(COLLECTION_NAME).document(uid)
-                .update("role", role);
-        return collectionsApiFuture.get().getUpdateTime().toString();
+    public String updateUserRole(String uid, String role) {
+        try {
+            return firestore.collection(COLLECTION_NAME).document(uid)
+                    .update("role", role)
+                    .get()
+                    .getUpdateTime()
+                    .toString();
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot update role for user: " + uid, e);
+        }
     }
 }
