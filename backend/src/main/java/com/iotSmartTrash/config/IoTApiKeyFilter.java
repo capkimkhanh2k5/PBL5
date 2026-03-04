@@ -21,7 +21,8 @@ public class IoTApiKeyFilter extends OncePerRequestFilter {
 
     private static final Set<String> PROTECTED_IOT_PATHS = Set.of(
             "/api/v1/system/classification-logs",
-            "/api/v1/system/alerts");
+            "/api/v1/system/alerts",
+            "/api/v1/iot/bins");
 
     @Value("${iot.api-key}")
     private String validApiKey;

@@ -14,14 +14,14 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
 
+/**
+ * Firebase configuration — Firestore only (no Realtime Database).
+ */
 @Configuration
 public class FirebaseConfig {
 
     @Value("${firebase.service-account:classpath:serviceAccountKey.json}")
     private String serviceAccountPath;
-
-    @Value("${firebase.database-url}")
-    private String databaseUrl;
 
     @Value("${firebase.storage-bucket}")
     private String storageBucket;
@@ -38,13 +38,12 @@ public class FirebaseConfig {
 
             FirebaseOptions options = FirebaseOptions.builder()
                     .setCredentials(GoogleCredentials.fromStream(serviceAccount))
-                    .setDatabaseUrl(databaseUrl)
                     .setStorageBucket(storageBucket)
                     .build();
 
             if (FirebaseApp.getApps().isEmpty()) {
                 FirebaseApp.initializeApp(options);
-                System.out.println("Firebase Admin SDK initialization completed!");
+                System.out.println("Firebase Admin SDK initialization completed! (Firestore only)");
             }
         } catch (Exception e) {
             System.err.println("Firebase init error: " + e.getMessage());

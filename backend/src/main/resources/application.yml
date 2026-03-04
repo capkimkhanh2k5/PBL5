@@ -7,7 +7,7 @@ spring:
 
 firebase:
   service-account: classpath:serviceAccountKey.json
-  database-url: https://pbl5-f21e6-default-rtdb.asia-southeast1.firebasedatabase.app
+  # database-url removed — Realtime Database is no longer used, Firestore only
   storage-bucket: pbl5-f21e6.appspot.com
 
 iot:
