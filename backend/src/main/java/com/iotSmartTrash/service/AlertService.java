@@ -1,5 +1,6 @@
 package com.iotSmartTrash.service;
 
+import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.DocumentReference;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
@@ -11,7 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
 @Service
 @RequiredArgsConstructor
@@ -21,22 +22,20 @@ public class AlertService {
 
     private final Firestore firestore;
 
-    /** Tạo cảnh báo mới (do Raspberry Pi gọi API hoặc Cron Job tự chạy) */
     public String createAlert(Alert alert) {
         try {
             DocumentReference docRef = firestore.collection(COLLECTION_NAME).document();
             alert.setId(docRef.getId());
-            alert.setCreatedAt(com.google.cloud.Timestamp.now());
-            // status đã được set = AlertStatus.NEW trong AlertCreateDTO.toModel()
-
+            alert.setCreatedAt(Timestamp.now());
             return docRef.set(alert).get().getUpdateTime().toString();
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot create alert", e);
+            throw new ServiceException("Cannot create alert: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot create alert", e.getCause());
         }
     }
 
-    /** Lấy danh sách toàn bộ cảnh báo cho Admin Portal */
     public List<Alert> getAllAlerts() {
         try {
             List<Alert> alerts = new ArrayList<>();
@@ -46,26 +45,32 @@ public class AlertService {
                 alerts.add(alert);
             }
             return alerts;
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot get list of alerts", e);
+            throw new ServiceException("Cannot get list of alerts: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot get list of alerts", e.getCause());
         }
     }
 
-    /** Staff/Admin xác nhận đã xử lý xong cảnh báo */
+    /**
+     * Resolve an alert.
+     */
     public String resolveAlert(String alertId, String resolvedByUserId) {
         try {
             return firestore.collection(COLLECTION_NAME).document(alertId)
-                    .update(Map.of(
+                    .update(
                             "status", AlertStatus.RESOLVED.name(),
                             "resolved_by", resolvedByUserId,
-                            "resolved_at", com.google.cloud.Timestamp.now()))
+                            "resolved_at", Timestamp.now())
                     .get()
                     .getUpdateTime()
                     .toString();
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot resolve alert: " + alertId, e);
+            throw new ServiceException("Cannot resolve alert: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot resolve alert: " + alertId, e.getCause());
         }
     }
 }
