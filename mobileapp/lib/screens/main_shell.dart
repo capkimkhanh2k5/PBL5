@@ -16,10 +16,10 @@ class _MainShellState extends State<MainShell> {
 
   final _pages = const [
     HomeScreen(),        // 0
-    ScheduleScreen(),       // 1 Schedule
-    SizedBox.shrink(),   // 2 Scan (FAB)
-    AiChatScreen(),       // 3 AI
-    Placeholder(),       // 4 Maps
+    ScheduleScreen(),    // 1
+    SizedBox.shrink(),   // 2 (FAB)
+    AiChatScreen(),      // 3
+    Placeholder(),       // 4
   ];
 
   static const _active = Color(0xFF2F6B3D);
@@ -29,29 +29,38 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
 
-    return Scaffold(
-      // bỏ resizeToAvoidBottomInset: false đi
-      body: IndexedStack(
-        index: _index,
-        children: _pages,
-      ),
+    return PopScope(
+      canPop: _index == 0, // chỉ cho thoát khi đang ở Home
+      onPopInvoked: (didPop) {
+        // didPop == true nghĩa là hệ thống đã pop rồi -> không làm gì nữa
+        if (didPop) return;
 
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      floatingActionButton: keyboardOpen
-          ? null
-          : FloatingActionButton(
-        backgroundColor: const Color(0xFF2F6B3D), // xanh như cũ
-        onPressed: () {
-          setState(() => _index = 2);
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ScanQrScreen()),
-          );
-        },
-        child: const Icon(Icons.qr_code_scanner, color: Colors.white),
+        // Nếu không ở Home, bấm back sẽ về Home
+        if (_index != 0) {
+          setState(() => _index = 0);
+        }
+      },
+      child: Scaffold(
+        body: IndexedStack(
+          index: _index,
+          children: _pages,
+        ),
+        floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+        floatingActionButton: keyboardOpen
+            ? null
+            : FloatingActionButton(
+          backgroundColor: const Color(0xFF2F6B3D),
+          onPressed: () {
+            // Không cần set _index = 2 vì bạn push sang route mới
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ScanQrScreen()),
+            );
+          },
+          child: const Icon(Icons.qr_code_scanner, color: Colors.white),
+        ),
+        bottomNavigationBar: keyboardOpen ? null : _buildBottomBar(),
       ),
-
-      bottomNavigationBar: keyboardOpen ? null : _buildBottomBar(),
     );
   }
 
