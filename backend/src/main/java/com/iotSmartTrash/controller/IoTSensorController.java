@@ -17,7 +17,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Controller cho IoT device (Raspberry Pi) gửi dữ liệu sensor.
+ * Controller cho IoT device (Raspberry Pi) gửi dữ liệu sensor và nhận trạng
+ * thái thùng rác từ BE.
  */
 @RestController
 @RequestMapping("/api/v1/iot")
@@ -31,7 +32,7 @@ public class IoTSensorController {
     // ━━━━━━━━━━━━━━━━━ Bin Realtime Status ━━━━━━━━━━━━━━━━━
 
     /**
-     * Raspi gọi mỗi 30 giây để cập nhật trạng thái thùng rác.
+     * Raspi gọi mỗi 300 giây để cập nhật trạng thái thùng rác.
      * Replaces RTDB write to: bins/{bin_id}
      */
     @PostMapping("/bins/{binId}/status")
