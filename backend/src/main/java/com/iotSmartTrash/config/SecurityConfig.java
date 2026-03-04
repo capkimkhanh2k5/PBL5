@@ -25,7 +25,7 @@ public class SecurityConfig {
         private final IoTApiKeyFilter ioTApiKeyFilter;
 
         /**
-         * Đọc từ application.yml
+         * Read from application.yml — override with env CORS_ALLOWED_ORIGINS on deploy
          */
         @Value("${cors.allowed-origins}")
         private List<String> allowedOrigins;
@@ -38,21 +38,21 @@ public class SecurityConfig {
                                 .sessionManagement(session -> session
                                                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                                 .authorizeHttpRequests(auth -> auth
-                                                // Public endpoints — không cần token
+                                                // Public — no token required
                                                 .requestMatchers("/api/v1/health").permitAll()
                                                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
 
-                                                // IoT endpoints — được bảo vệ bởi IoTApiKeyFilter (X-IoT-API-Key)
+                                                // IoT endpoints — protected by IoTApiKeyFilter (X-IoT-API-Key header)
                                                 .requestMatchers("/api/v1/system/classification-logs").permitAll()
                                                 .requestMatchers("/api/v1/system/alerts").permitAll()
 
-                                                // Dev/test endpoint — chỉ mở trong môi trường development
+                                                // Dev/test only — disable or protect before production deploy
                                                 .requestMatchers("/api/v1/trigger/**").permitAll()
 
-                                                // Tất cả còn lại yêu cầu Firebase Bearer Token
+                                                // All other requests require Firebase Bearer Token
                                                 .anyRequest().authenticated())
 
-                                // IoTApiKeyFilter chạy TRƯỚC FirebaseTokenFilter
+                                // IoTApiKeyFilter runs BEFORE FirebaseTokenFilter
                                 .addFilterBefore(ioTApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
                                 .addFilterBefore(firebaseTokenFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -62,12 +62,15 @@ public class SecurityConfig {
         @Bean
         public CorsConfigurationSource corsConfigurationSource() {
                 CorsConfiguration configuration = new CorsConfiguration();
+
+                boolean hasWildcard = allowedOrigins != null
+                                && allowedOrigins.stream().anyMatch("*"::equals);
+
                 configuration.setAllowedOrigins(allowedOrigins);
                 configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-                configuration
-                                .setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Cache-Control",
-                                                "X-IoT-API-Key"));
-                configuration.setAllowCredentials(true);
+                configuration.setAllowedHeaders(
+                                Arrays.asList("Authorization", "Content-Type", "Cache-Control", "X-IoT-API-Key"));
+                configuration.setAllowCredentials(!hasWildcard);
 
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
                 source.registerCorsConfiguration("/**", configuration);
