@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/auth_service.dart';
+import '../services/api_service.dart';
 import 'login_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -12,9 +15,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  final _authService = AuthService();
 
   bool _rememberMe = false;
   bool _obscure = true;
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -22,6 +27,78 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailCtrl.dispose();
     _passCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleRegister() async {
+    final name = _nameCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+    final password = _passCtrl.text.trim();
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+      _showSnackBar('Please fill in all the information.');
+      return;
+    }
+    if (password.length < 6) {
+      _showSnackBar('Password must be at least 6 characters.');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      await _authService.registerWithEmail(
+        email: email,
+        password: password,
+        displayName: name,
+      );
+
+      // Sync user lên backend
+      try {
+        final apiService = ApiService(authService: _authService);
+        await apiService.syncUser();
+      } catch (_) {
+        // Backend sync thất bại không chặn đăng ký
+      }
+
+      if (!mounted) return;
+      _showSuccessAndNavigate();
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      _showSnackBar(AuthService.getErrorMessage(e));
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('An error occurred. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showSuccessAndNavigate() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Registration successful! Please log in.'),
+        backgroundColor: const Color(0xFF2F6B3D),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+    // Đăng xuất để user phải login lại (xác nhận đăng nhập)
+    _authService.signOut();
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red.shade700,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   @override
@@ -105,12 +182,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     width: double.infinity,
                     height: 54,
                     child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(builder: (_) => const LoginScreen()),
-                        );
-                      },
+                      onPressed: _isLoading ? null : _handleRegister,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: green,
                         foregroundColor: Colors.white,
@@ -119,10 +191,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           borderRadius: BorderRadius.circular(28),
                         ),
                       ),
-                      child: const Text(
-                        'Register',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
+                          : const Text(
+                              'Register',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                            ),
                     ),
                   ),
 
