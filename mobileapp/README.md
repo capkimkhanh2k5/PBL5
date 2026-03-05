@@ -1,16 +1,23 @@
-# mobileapp
+Ứng dụng di động bao gồm các trang chính sau:
 
-A new Flutter project.
+Trang đăng nhập (Login Screen) – Cho phép người dùng đăng nhập vào hệ thống.
 
-## Getting Started
+Trang đăng ký (Register Screen) – Tạo tài khoản người dùng mới.
 
-This project is a starting point for a Flutter application.
+Trang chính (Home Screen) – Hiển thị tổng quan các thùng rác thông minh.
 
-A few resources to get you started if this is your first Flutter project:
+Trang chi tiết thùng rác (Bin Detail Screen) – Xem thông tin và mức độ đầy của thùng rác.
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+Trang lịch sử (History Screen) – Hiển thị lịch sử đổ rác hoặc hoạt động của người dùng.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Trang lịch thu gom (Schedule Screen) – Xem lịch thu gom rác.
+
+Trang quét QR (Scan QR Screen) – Quét mã QR trên thùng rác để tương tác nhanh.
+
+Trang AI Chat (AI Chat Screen) – Hỗ trợ người dùng hỏi về phân loại rác hoặc thông tin liên quan.
+
+Ngoài ra, ứng dụng còn có:
+
+Main Shell – Quản lý điều hướng giữa các trang chính trong ứng dụng.
+
+Theme / App Background – Quản lý giao diện và màu sắc chung của ứng dụng.
