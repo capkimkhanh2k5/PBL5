@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
-import 'main_shell.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 
@@ -143,7 +142,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       const SizedBox(height: 22),
-
                       _InputField(
                         hint: 'Email',
                         controller: _emailCtrl,
@@ -151,7 +149,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         keyboardType: TextInputType.emailAddress,
                       ),
                       const SizedBox(height: 14),
-
                       _InputField(
                         hint: 'Password',
                         controller: _passCtrl,
@@ -165,17 +162,17 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 10),
-
                       Row(
                         children: [
                           Checkbox(
                             value: _rememberMe,
-                            onChanged: (v) => setState(() => _rememberMe = v ?? false),
+                            onChanged: (v) =>
+                                setState(() => _rememberMe = v ?? false),
                             activeColor: const Color(0xFF2F6B3D),
                           ),
-                          const Text('Remember me', style: TextStyle(fontSize: 13)),
+                          const Text('Remember me',
+                              style: TextStyle(fontSize: 13)),
                           const Spacer(),
                           TextButton(
                             onPressed: () {
@@ -197,9 +194,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 6),
-
                       SizedBox(
                         width: double.infinity,
                         height: 54,
@@ -224,15 +219,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                 )
                               : const Text(
                                   'Login',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                                  style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800),
                                 ),
                         ),
                       ),
-
                       const SizedBox(height: 18),
-
                       const SizedBox(height: 16),
-
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -248,7 +242,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             onTap: () {
                               Navigator.push(
                                 context,
-                                MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                                MaterialPageRoute(
+                                    builder: (_) => const RegisterScreen()),
                               );
                             },
                             child: const Text(
@@ -305,7 +300,8 @@ class _InputField extends StatelessWidget {
         suffixIcon: suffix,
         filled: true,
         fillColor: const Color(0xFFF0F3F1),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide.none,

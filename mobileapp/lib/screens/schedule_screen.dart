@@ -28,7 +28,6 @@ class ScheduleScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-
             /// NEXT PICKUP CARD
             Container(
               padding: const EdgeInsets.all(20),
@@ -56,14 +55,10 @@ class ScheduleScreen extends StatelessWidget {
                           color: primary, size: 28),
                       const SizedBox(width: 12),
                       const Text(
-                        "Next Pickup",
+                        "Next Pickup • TC-01",
                         style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600),
+                            fontSize: 16, fontWeight: FontWeight.w600),
                       ),
-                      const Spacer(),
-
-                      /// TEXT THAY VÌ VÒNG TRÒN
                       const Text(
                         "In 2 days",
                         style: TextStyle(
@@ -75,10 +70,8 @@ class ScheduleScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 14),
                   const Text(
-                    "Thứ 5 | 7:30 AM",
-                    style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold),
+                    "Thursday | 7:30 AM",
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
                   const Text(
@@ -125,36 +118,21 @@ class ScheduleScreen extends StatelessWidget {
 
             const Text(
               "Upcoming Pickups",
-              style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
 
             const SizedBox(height: 14),
 
-            _pickupTile("Mon, Mar 4",
-                "7:30 AM · Organic Waste",
-                "Tomorrow"),
+            _pickupTile("Mon, Mar 4", "7:30 AM · TC-02", "In 2 days"),
 
-            _pickupTile("Thu, Mar 7",
-                "7:30 AM · Paper & Plastic",
-                "In 4 days"),
-
-            _pickupTile("Mon, Mar 11",
-                "7:30 AM · Organic Waste",
-                "In 7 days"),
-
-            _pickupTile("Thu, Mar 14",
-                "7:30 AM · Paper & Plastic",
-                "In 11 days"),
+            _pickupTile("Thu, Mar 3", "7:30 AM · Tc-03", "In 2 days"),
           ],
         ),
       ),
     );
   }
 
-  static Widget _pickupTile(
-      String date, String subtitle, String badge) {
+  static Widget _pickupTile(String date, String subtitle, String badge) {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
@@ -171,19 +149,16 @@ class ScheduleScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.access_time,
-              color: primary, size: 28),
+          const Icon(Icons.access_time, color: primary, size: 28),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-              CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   date,
                   style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15),
+                      fontWeight: FontWeight.w600, fontSize: 15),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -194,17 +169,14 @@ class ScheduleScreen extends StatelessWidget {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 14, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
               color: const Color(0xFFE3F2E6),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
               badge,
-              style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
             ),
           )
         ],
