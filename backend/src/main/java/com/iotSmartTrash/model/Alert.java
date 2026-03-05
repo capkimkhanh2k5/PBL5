@@ -1,5 +1,7 @@
 package com.iotSmartTrash.model;
 
+import java.util.Map;
+
 import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.annotation.PropertyName;
 import com.iotSmartTrash.model.enums.AlertSeverity;
@@ -35,4 +37,10 @@ public class Alert {
 
     @PropertyName("resolved_at")
     private Timestamp resolvedAt;
+
+    @PropertyName("fill_levels_at_alert")
+    private Map<String, Integer> fillLevelsAtAlert;
+
+    @PropertyName("fill_levels_at_resolve")
+    private Map<String, Integer> fillLevelsAtResolve;
 }

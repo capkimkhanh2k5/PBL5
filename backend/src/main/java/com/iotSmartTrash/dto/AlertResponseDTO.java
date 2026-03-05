@@ -1,5 +1,7 @@
 package com.iotSmartTrash.dto;
 
+import java.util.Map;
+
 import com.google.cloud.Timestamp;
 import com.iotSmartTrash.model.Alert;
 import com.iotSmartTrash.model.enums.AlertSeverity;
@@ -24,6 +26,8 @@ public class AlertResponseDTO {
     private String resolvedBy;
     private Timestamp createdAt;
     private Timestamp resolvedAt;
+    private Map<String, Integer> fillLevelsAtAlert;
+    private Map<String, Integer> fillLevelsAtResolve;
 
     public static AlertResponseDTO fromModel(Alert alert) {
         if (alert == null)
@@ -38,6 +42,8 @@ public class AlertResponseDTO {
                 .resolvedBy(alert.getResolvedBy())
                 .createdAt(alert.getCreatedAt())
                 .resolvedAt(alert.getResolvedAt())
+                .fillLevelsAtAlert(alert.getFillLevelsAtAlert())
+                .fillLevelsAtResolve(alert.getFillLevelsAtResolve())
                 .build();
     }
 }
