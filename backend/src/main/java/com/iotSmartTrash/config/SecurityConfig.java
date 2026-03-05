@@ -43,6 +43,7 @@ public class SecurityConfig {
                                                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
 
                                                 // IoT endpoints — protected by IoTApiKeyFilter (X-IoT-API-Key header)
+                                                .requestMatchers("/api/v1/iot/**").permitAll()
                                                 .requestMatchers("/api/v1/system/classification-logs").permitAll()
                                                 .requestMatchers("/api/v1/system/alerts").permitAll()
 
