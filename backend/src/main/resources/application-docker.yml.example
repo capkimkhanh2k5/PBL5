@@ -1,0 +1,10 @@
+# Docker profile configuration
+server:
+  port: 8080
+
+spring:
+  application:
+    name: SmartTrashBackend
+
+firebase:
+  service-account: classpath:serviceAccountKey.json

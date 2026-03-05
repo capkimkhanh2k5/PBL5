@@ -50,8 +50,27 @@ docs
 serviceAccountKey.json
 backend/target/
 
+# Firebase config (chứa API keys, OAuth client IDs)
+**/google-services.json
+**/GoogleService-Info.plist
+mobileapp/lib/firebase_options.dart
+
+# Backend config (chứa API keys, database URLs)
+backend/src/main/resources/application.yml
+backend/src/main/resources/application-docker.yml
+
 # Docker
 .env
+
+# ====== FLUTTER AUTO-GENERATED (machine-specific paths) ======
+mobileapp/.dart_tool/
+mobileapp/ios/Flutter/Generated.xcconfig
+mobileapp/ios/Flutter/flutter_export_environment.sh
+mobileapp/macos/Flutter/ephemeral/
+mobileapp/android/local.properties
+
+# ====== POSTMAN ======
+postman/
 
 # Model weights (large files)
 *.pth

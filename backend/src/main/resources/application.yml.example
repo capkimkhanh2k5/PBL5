@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: SmartTrashBackend
+
+firebase:
+  service-account: classpath:serviceAccountKey.json
+  storage-bucket: <your-firebase-project>.appspot.com
+
+iot:
+  # Thay đổi key này trước khi deploy production
+  api-key: <your-iot-api-key>
+
+cors:
+  allowed-origins: http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000
