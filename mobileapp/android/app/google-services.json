@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "86746937846",
+    "firebase_url": "https://pbl5-f21e6-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "pbl5-f21e6",
+    "storage_bucket": "pbl5-f21e6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:86746937846:android:59a2948882c713bf67efd7",
+        "android_client_info": {
+          "package_name": "com.example.pbl5Flutter"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "86746937846-e4f717j97n3v0gpfg7871l70qgl1a56v.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBUoRROviLSkM3XVpeyOW9pZFgJ955FRn8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "86746937846-e4f717j97n3v0gpfg7871l70qgl1a56v.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "86746937846-k3e9i2aosaj2rcp3f6pf99qcl9rkblgi.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.pbl5Flutter"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

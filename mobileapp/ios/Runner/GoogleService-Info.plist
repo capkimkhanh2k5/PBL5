@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>86746937846-k3e9i2aosaj2rcp3f6pf99qcl9rkblgi.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.86746937846-k3e9i2aosaj2rcp3f6pf99qcl9rkblgi</string>
+	<key>API_KEY</key>
+	<string>AIzaSyBJ1sdlKoH27EhU-52o66GBMke15cEBNOE</string>
+	<key>GCM_SENDER_ID</key>
+	<string>86746937846</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.example.pbl5Flutter</string>
+	<key>PROJECT_ID</key>
+	<string>pbl5-f21e6</string>
+	<key>STORAGE_BUCKET</key>
+	<string>pbl5-f21e6.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:86746937846:ios:28a3ab2ab7cb4c8c67efd7</string>
+	<key>DATABASE_URL</key>
+	<string>https://pbl5-f21e6-default-rtdb.asia-southeast1.firebasedatabase.app</string>
+</dict>
+</plist>

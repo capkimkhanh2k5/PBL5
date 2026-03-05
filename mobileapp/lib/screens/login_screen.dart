@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/auth_service.dart';
+import '../services/api_service.dart';
 import 'main_shell.dart';
 import 'register_screen.dart';
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -10,17 +14,65 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _nameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  final _authService = AuthService();
 
   bool _rememberMe = false;
   bool _obscure = true;
+  bool _isLoading = false;
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
+    _emailCtrl.dispose();
     _passCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    final email = _emailCtrl.text.trim();
+    final password = _passCtrl.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      _showSnackBar('Please enter your email and password.');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      await _authService.signInWithEmail(email: email, password: password);
+
+      // Sync user lên backend
+      try {
+        final apiService = ApiService(authService: _authService);
+        await apiService.syncUser();
+      } catch (_) {
+        // Backend sync thất bại không chặn login — user vẫn vào app
+      }
+
+      if (!mounted) return;
+      // AuthGate trong main sẽ tự chuyển sang MainShell
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      _showSnackBar(AuthService.getErrorMessage(e));
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('An error occurred. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red.shade700,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   @override
@@ -42,6 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
               height: topImageHeight,
               child: Image.asset(
                 'assets/images/leaves.jpg',
+                // 'assets/images/smartTrash.jpg',
                 fit: BoxFit.cover,
               ),
             ),
@@ -92,9 +145,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 22),
 
                       _InputField(
-                        hint: 'Full Name',
-                        controller: _nameCtrl,
-                        prefix: Icons.person_outline,
+                        hint: 'Email',
+                        controller: _emailCtrl,
+                        prefix: Icons.mail_outline,
+                        keyboardType: TextInputType.emailAddress,
                       ),
                       const SizedBox(height: 14),
 
@@ -124,7 +178,14 @@ class _LoginScreenState extends State<LoginScreen> {
                           const Text('Remember me', style: TextStyle(fontSize: 13)),
                           const Spacer(),
                           TextButton(
-                            onPressed: () {},
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ForgotPasswordScreen(),
+                                ),
+                              );
+                            },
                             child: const Text(
                               'Forgot Password?',
                               style: TextStyle(
@@ -143,12 +204,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: double.infinity,
                         height: 54,
                         child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(builder: (_) => const MainShell()),
-                            );
-                          },
+                          onPressed: _isLoading ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2F6B3D),
                             foregroundColor: Colors.white,
@@ -157,10 +213,19 @@ class _LoginScreenState extends State<LoginScreen> {
                               borderRadius: BorderRadius.circular(28),
                             ),
                           ),
-                          child: const Text(
-                            'Login',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2.5,
+                                  ),
+                                )
+                              : const Text(
+                                  'Login',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                                ),
                         ),
                       ),
 
@@ -217,6 +282,7 @@ class _InputField extends StatelessWidget {
     required this.prefix,
     this.suffix,
     this.obscureText = false,
+    this.keyboardType,
   });
 
   final String hint;
@@ -224,12 +290,14 @@ class _InputField extends StatelessWidget {
   final IconData prefix;
   final Widget? suffix;
   final bool obscureText;
+  final TextInputType? keyboardType;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
       obscureText: obscureText,
+      keyboardType: keyboardType,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: Colors.black.withOpacity(0.45)),
