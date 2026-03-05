@@ -7,6 +7,7 @@ import com.iotSmartTrash.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +22,27 @@ public class UserController {
 
     private final UserService userService;
 
+    /**
+     * Lấy thông tin user hiện tại dựa trên Firebase UID từ token.
+     */
+    @GetMapping("/me")
+    public ResponseEntity<UserResponseDTO> getCurrentUser(Authentication authentication) {
+        String uid = (String) authentication.getPrincipal();
+        User user = userService.createUserIfNotExists(uid);
+        return ResponseEntity.ok(UserResponseDTO.fromModel(user));
+    }
+
+    /**
+     * Client gọi sau khi đăng ký/đăng nhập Firebase Auth thành công
+     * để đồng bộ thông tin user vào Firestore.
+     */
+    @PostMapping("/sync")
+    public ResponseEntity<UserResponseDTO> syncUser(Authentication authentication) {
+        String uid = (String) authentication.getPrincipal();
+        User user = userService.createUserIfNotExists(uid);
+        return ResponseEntity.ok(UserResponseDTO.fromModel(user));
+    }
+
     @GetMapping
     public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
         List<User> users = userService.getAllUsers();
@@ -34,7 +56,6 @@ public class UserController {
     public ResponseEntity<UserResponseDTO> getUserById(@PathVariable String uid) {
         User user = userService.getUserById(uid);
         return ResponseEntity.ok(UserResponseDTO.fromModel(user));
-        // ResourceNotFoundException → GlobalExceptionHandler → 404
     }
 
     @PatchMapping("/{uid}/role")
