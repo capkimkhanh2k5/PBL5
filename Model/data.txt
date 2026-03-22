@@ -1,6 +1,0 @@
-Kaggle:
-https://www.kaggle.com/datasets/mostafaabla/garbage-classification
-https://www.kaggle.com/datasets/mrgetshjtdone/vn-trash-classification
-https://www.kaggle.com/datasets/thanhngnguyn/vietnam-domestic-solid-waste?select=143_Glass_other
-
-Processed data:
