@@ -4,8 +4,8 @@ venv/
 ENV/
 
 # Data & test files
-data/
-data.zip
+DataSet/*
+dataSet.zip
 TestImage/
 TestImageCopy/
 
