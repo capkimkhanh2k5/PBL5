@@ -1,14 +1,29 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'auth_service.dart';
 
 class ApiService {
   late final Dio _dio;
   final AuthService _authService;
 
-  // Thay đổi baseUrl khi deploy (dùng biến env hoặc config)
-  static const String _baseUrl = 'http://10.0.2.2:8080/api/v1'; // Android emulator → localhost
-  // Dùng 'http://localhost:8080/api/v1' cho iOS simulator
-  // Dùng 'http://<your-ip>:8080/api/v1' cho device thật
+  // Chọn baseUrl theo platform để tránh lỗi kết nối giữa Android/iOS simulator.
+  static String get _baseUrl {
+    if (kIsWeb) {
+      return 'http://localhost:8080/api/v1';
+    }
+
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        // Android emulator -> localhost máy host
+        return 'http://10.0.2.2:8080/api/v1';
+      case TargetPlatform.iOS:
+        // iOS simulator -> localhost máy host
+        return 'http://localhost:8080/api/v1';
+      default:
+        // Desktop/dev fallback
+        return 'http://localhost:8080/api/v1';
+    }
+  }
 
   ApiService({required AuthService authService}) : _authService = authService {
     _dio = Dio(BaseOptions(
