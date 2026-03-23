@@ -7,6 +7,7 @@ import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
 import com.iotSmartTrash.exception.ServiceException;
 import com.iotSmartTrash.model.Alert;
+import com.iotSmartTrash.model.BinRawSensorLog;
 import com.iotSmartTrash.model.enums.AlertStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -22,17 +23,16 @@ import java.util.concurrent.ExecutionException;
 public class AlertService {
 
     private static final String COLLECTION_NAME = "alerts";
-    private static final String BINS_REALTIME_COLLECTION = "bin_realtime_status";
 
     private final Firestore firestore;
+    private final BinRawSensorLogService rawSensorLogService;
 
     public String createAlert(Alert alert) {
         try {
-            // Lấy thông tin hiện tại của thùng rác để lưu % rác lúc phát cảnh báo
-            DocumentSnapshot binSnap = firestore.collection(BINS_REALTIME_COLLECTION)
-                    .document(alert.getBinId()).get().get();
-            if (binSnap.exists()) {
-                alert.setFillLevelsAtAlert(extractFillLevels(binSnap));
+            // Snapshot fill-level từ raw log mới nhất (non-realtime mode)
+            List<BinRawSensorLog> logs = rawSensorLogService.getRecentLogsForBin(alert.getBinId(), 1);
+            if (!logs.isEmpty()) {
+                alert.setFillLevelsAtAlert(extractFillLevels(logs.get(0)));
             }
 
             DocumentReference docRef = firestore.collection(COLLECTION_NAME).document();
@@ -79,10 +79,9 @@ public class AlertService {
 
             // Lấy % rác hiện tại (sau khi dọn) để lưu vào lịch sử
             if (binId != null) {
-                DocumentSnapshot binSnap = firestore.collection(BINS_REALTIME_COLLECTION)
-                        .document(binId).get().get();
-                if (binSnap.exists()) {
-                    fillLevelsAtResolve = extractFillLevels(binSnap);
+                List<BinRawSensorLog> logs = rawSensorLogService.getRecentLogsForBin(binId, 1);
+                if (!logs.isEmpty()) {
+                    fillLevelsAtResolve = extractFillLevels(logs.get(0));
                 }
             }
 
@@ -103,17 +102,16 @@ public class AlertService {
         }
     }
 
-    private Map<String, Integer> extractFillLevels(DocumentSnapshot snap) {
+    private Map<String, Integer> extractFillLevels(BinRawSensorLog log) {
         Map<String, Integer> levels = new HashMap<>();
-        levels.put("fillOrganic", getIntValue(snap, "fill_organic"));
-        levels.put("fillRecycle", getIntValue(snap, "fill_recycle"));
-        levels.put("fillNonRecycle", getIntValue(snap, "fill_non_recycle"));
-        levels.put("fillHazardous", getIntValue(snap, "fill_hazardous"));
+        levels.put("fillOrganic", safeInt(log.getFillOrganic()));
+        levels.put("fillRecycle", safeInt(log.getFillRecycle()));
+        levels.put("fillNonRecycle", safeInt(log.getFillNonRecycle()));
+        levels.put("fillHazardous", safeInt(log.getFillHazardous()));
         return levels;
     }
 
-    private Integer getIntValue(DocumentSnapshot snap, String field) {
-        Long val = snap.getLong(field);
-        return val != null ? val.intValue() : 0;
+    private Integer safeInt(Integer value) {
+        return value != null ? value : 0;
     }
 }

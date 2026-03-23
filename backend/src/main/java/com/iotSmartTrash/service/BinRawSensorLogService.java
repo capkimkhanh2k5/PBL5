@@ -1,13 +1,18 @@
 package com.iotSmartTrash.service;
 
 import com.google.cloud.firestore.*;
+import com.iotSmartTrash.dto.RawLogMigrationResultDTO;
 import com.iotSmartTrash.exception.ServiceException;
 import com.iotSmartTrash.model.BinRawSensorLog;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -32,11 +37,19 @@ public class BinRawSensorLogService {
             DocumentReference docRef = firestore
                     .collection(PARENT_COLLECTION).document(binId)
                     .collection(SUB_COLLECTION).document();
-            log.setId(docRef.getId());
-            if (log.getRecordedAt() == null) {
-                log.setRecordedAt(System.currentTimeMillis());
-            }
-            return docRef.set(log).get().getUpdateTime().toString();
+            long recordedAt = log.getRecordedAt() != null ? log.getRecordedAt() : System.currentTimeMillis();
+
+            // Write canonical snake_case fields for stable querying/indexing.
+                Map<String, Object> payload = new HashMap<>();
+                payload.put("temperature", log.getTemperature());
+                payload.put("battery_level", safeInt(log.getBatteryLevel()));
+                payload.put("fill_organic", safeInt(log.getFillOrganic()));
+                payload.put("fill_recycle", safeInt(log.getFillRecycle()));
+                payload.put("fill_non_recycle", safeInt(log.getFillNonRecycle()));
+                payload.put("fill_hazardous", safeInt(log.getFillHazardous()));
+                payload.put("recorded_at", recordedAt);
+
+            return docRef.set(payload).get().getUpdateTime().toString();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ServiceException("Cannot add raw sensor log: operation interrupted", e);
@@ -50,17 +63,14 @@ public class BinRawSensorLogService {
      */
     public List<BinRawSensorLog> getLogsForBin(String binId) {
         try {
+            List<QueryDocumentSnapshot> docs = queryByRecordedField(
+                    binId,
+                    Query.Direction.ASCENDING,
+                    null);
+
             List<BinRawSensorLog> logs = new ArrayList<>();
-            for (QueryDocumentSnapshot doc : firestore
-                    .collection(PARENT_COLLECTION).document(binId)
-                    .collection(SUB_COLLECTION)
-                    .orderBy("recorded_at", Query.Direction.ASCENDING)
-                    .get().get().getDocuments()) {
-                BinRawSensorLog log = doc.toObject(BinRawSensorLog.class);
-                if (log != null) {
-                    log.setId(doc.getId());
-                    logs.add(log);
-                }
+            for (QueryDocumentSnapshot doc : docs) {
+                logs.add(mapRawLog(doc));
             }
             return logs;
         } catch (InterruptedException e) {
@@ -68,6 +78,29 @@ public class BinRawSensorLogService {
             throw new ServiceException("Cannot get raw sensor logs: operation interrupted", e);
         } catch (ExecutionException e) {
             throw new ServiceException("Cannot get raw sensor logs for bin: " + binId, e.getCause());
+        }
+    }
+
+    /**
+     * Lấy N raw sensor logs gần nhất của 1 thùng rác.
+     */
+    public List<BinRawSensorLog> getRecentLogsForBin(String binId, int limit) {
+        try {
+            List<QueryDocumentSnapshot> docs = queryByRecordedField(
+                    binId,
+                    Query.Direction.DESCENDING,
+                    limit);
+
+            List<BinRawSensorLog> logs = new ArrayList<>();
+            for (QueryDocumentSnapshot doc : docs) {
+                logs.add(mapRawLog(doc));
+            }
+            return logs;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot get recent raw sensor logs: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot get recent raw sensor logs for bin: " + binId, e.getCause());
         }
     }
 
@@ -98,9 +131,8 @@ public class BinRawSensorLogService {
                     .collection(SUB_COLLECTION);
 
             // Query logs cũ hơn cutoff
-            List<QueryDocumentSnapshot> oldDocs = logsRef
-                    .whereLessThan("recorded_at", cutoffMillis)
-                    .get().get().getDocuments();
+            Set<QueryDocumentSnapshot> oldDocs = new HashSet<>();
+            oldDocs.addAll(logsRef.whereLessThan("recorded_at", cutoffMillis).get().get().getDocuments());
 
             // Xóa theo batch (tối đa 500 writes/batch theo giới hạn Firestore)
             WriteBatch batch = firestore.batch();
@@ -129,5 +161,181 @@ public class BinRawSensorLogService {
         } catch (ExecutionException e) {
             throw new ServiceException("Cannot delete old logs for bin: " + binId, e.getCause());
         }
+    }
+
+    /**
+     * Normalize raw logs schema to snake_case keys and ensure recorded_at exists.
+     */
+    public RawLogMigrationResultDTO migrateRawLogSchema() {
+        try {
+            int binsScanned = 0;
+            int docsScanned = 0;
+            int docsUpdated = 0;
+            int docsTimestampBackfilled = 0;
+
+            for (DocumentReference binRef : firestore.collection(PARENT_COLLECTION).listDocuments()) {
+                binsScanned++;
+                CollectionReference logsRef = binRef.collection(SUB_COLLECTION);
+                List<QueryDocumentSnapshot> docs = logsRef.get().get().getDocuments();
+
+                WriteBatch batch = firestore.batch();
+                int batchCount = 0;
+
+                for (QueryDocumentSnapshot doc : docs) {
+                    docsScanned++;
+                    Map<String, Object> data = doc.getData();
+                    Map<String, Object> updates = new HashMap<>();
+                    boolean shouldUpdate = false;
+
+                    Long recordedAt = extractLong(data, "recorded_at", "recordedAt");
+                    if (recordedAt == null || recordedAt <= 0L) {
+                        recordedAt = doc.getUpdateTime().toDate().getTime();
+                        docsTimestampBackfilled++;
+                        shouldUpdate = true;
+                    }
+                    if (!data.containsKey("recorded_at") || !Long.valueOf(recordedAt).equals(data.get("recorded_at"))) {
+                        updates.put("recorded_at", recordedAt);
+                        shouldUpdate = true;
+                    }
+
+                    shouldUpdate |= migrateNumberField(data, updates, "battery_level", "batteryLevel");
+                    shouldUpdate |= migrateNumberField(data, updates, "fill_organic", "fillOrganic");
+                    shouldUpdate |= migrateNumberField(data, updates, "fill_recycle", "fillRecycle");
+                    shouldUpdate |= migrateNumberField(data, updates, "fill_non_recycle", "fillNonRecycle");
+                    shouldUpdate |= migrateNumberField(data, updates, "fill_hazardous", "fillHazardous");
+
+                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "recordedAt");
+                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "batteryLevel");
+                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "fillOrganic");
+                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "fillRecycle");
+                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "fillNonRecycle");
+                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "fillHazardous");
+
+                    if (!shouldUpdate) {
+                        continue;
+                    }
+
+                    batch.update(doc.getReference(), updates);
+                    batchCount++;
+                    docsUpdated++;
+
+                    if (batchCount >= 450) {
+                        batch.commit().get();
+                        batch = firestore.batch();
+                        batchCount = 0;
+                    }
+                }
+
+                if (batchCount > 0) {
+                    batch.commit().get();
+                }
+            }
+
+            return RawLogMigrationResultDTO.builder()
+                    .binsScanned(binsScanned)
+                    .docsScanned(docsScanned)
+                    .docsUpdated(docsUpdated)
+                    .docsTimestampBackfilled(docsTimestampBackfilled)
+                    .build();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot migrate raw logs schema: operation interrupted", e);
+        } catch (ExecutionException e) {
+            throw new ServiceException("Cannot migrate raw logs schema", e.getCause());
+        }
+    }
+
+    private List<QueryDocumentSnapshot> queryByRecordedField(
+            String binId,
+            Query.Direction direction,
+            Integer limit) throws InterruptedException, ExecutionException {
+
+        CollectionReference ref = firestore
+                .collection(PARENT_COLLECTION).document(binId)
+                .collection(SUB_COLLECTION);
+
+        return buildQuery(ref, "recorded_at", direction, limit).get().get().getDocuments();
+    }
+
+    private Query buildQuery(CollectionReference ref, String orderField, Query.Direction direction, Integer limit) {
+        Query query = ref.orderBy(orderField, direction);
+        if (limit != null) {
+            query = query.limit(limit);
+        }
+        return query;
+    }
+
+    private BinRawSensorLog mapRawLog(QueryDocumentSnapshot doc) {
+        return BinRawSensorLog.builder()
+                .id(doc.getId())
+                .temperature(getDouble(doc, "temperature"))
+                .batteryLevel(getInt(doc, "battery_level"))
+                .fillOrganic(getInt(doc, "fill_organic"))
+                .fillRecycle(getInt(doc, "fill_recycle"))
+                .fillNonRecycle(getInt(doc, "fill_non_recycle"))
+                .fillHazardous(getInt(doc, "fill_hazardous"))
+                .recordedAt(getLong(doc, "recorded_at"))
+                .build();
+    }
+
+    private Integer safeInt(Integer value) {
+        return value != null ? value : 0;
+    }
+
+    private Integer getInt(QueryDocumentSnapshot doc, String... keys) {
+        for (String key : keys) {
+            Long value = doc.getLong(key);
+            if (value != null) {
+                return value.intValue();
+            }
+        }
+        return 0;
+    }
+
+    private Long getLong(QueryDocumentSnapshot doc, String... keys) {
+        for (String key : keys) {
+            Long value = doc.getLong(key);
+            if (value != null) {
+                return value;
+            }
+        }
+        return 0L;
+    }
+
+    private Double getDouble(QueryDocumentSnapshot doc, String key) {
+        Double value = doc.getDouble(key);
+        return value != null ? value : 0.0;
+    }
+
+    private boolean migrateNumberField(Map<String, Object> data, Map<String, Object> updates, String newKey, String oldKey) {
+        if (data.containsKey(newKey)) {
+            return false;
+        }
+        Object oldVal = data.get(oldKey);
+        if (!(oldVal instanceof Number number)) {
+            return false;
+        }
+        updates.put(newKey, number.longValue());
+        return true;
+    }
+
+    private boolean deleteLegacyFieldIfPresent(Map<String, Object> data, Map<String, Object> updates, String field) {
+        if (!data.containsKey(field)) {
+            return false;
+        }
+        updates.put(field, FieldValue.delete());
+        return true;
+    }
+
+    private Long extractLong(Map<String, Object> data, String primary, String fallback) {
+        Object value = data.get(primary);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        Object fallbackValue = data.get(fallback);
+        if (fallbackValue instanceof Number number) {
+            return number.longValue();
+        }
+        return null;
     }
 }

@@ -1,0 +1,232 @@
+{
+	"version": "2026-03-23",
+	"architectureMode": "non-realtime",
+	"notes": [
+		"Device writes only /api/v1/iot/bins/{binId}/sensor-logs",
+		"Current bin status is derived from latest raw log",
+		"All raw logs use canonical snake_case fields"
+	],
+	"firestoreSeed": {
+		"bins_metadata": {
+			"bin_001": {
+				"id": "bin_001",
+				"name": "Thung A1 - Cong Truong",
+				"location_description": "Gate A1, main campus entrance",
+				"latitude": 10.7769,
+				"longitude": 106.7009,
+				"installed_at": { "seconds": 1774252800, "nanos": 0 }
+			},
+			"bin_002": {
+				"id": "bin_002",
+				"name": "Thung B1 - Cang Tin",
+				"location_description": "Near cafeteria B1",
+				"latitude": 10.7774,
+				"longitude": 106.7016,
+				"installed_at": { "seconds": 1774252800, "nanos": 0 }
+			},
+			"bin_003": {
+				"id": "bin_003",
+				"name": "Thung C1 - Thu Vien",
+				"location_description": "Library side entrance",
+				"latitude": 10.7758,
+				"longitude": 106.7021,
+				"installed_at": { "seconds": 1774252800, "nanos": 0 }
+			}
+		},
+		"bin_raw_sensor_logs": {
+			"bin_001": {
+				"logs": {
+					"raw_001": {
+						"temperature": 30.9,
+						"battery_level": 70,
+						"fill_organic": 45,
+						"fill_recycle": 58,
+						"fill_non_recycle": 66,
+						"fill_hazardous": 27,
+						"recorded_at": 1774269248017
+					},
+					"raw_002": {
+						"temperature": 31.4,
+						"battery_level": 69,
+						"fill_organic": 46,
+						"fill_recycle": 59,
+						"fill_non_recycle": 67,
+						"fill_hazardous": 28,
+						"recorded_at": 1774269308017
+					}
+				}
+			},
+			"bin_002": {
+				"logs": {
+					"raw_003": {
+						"temperature": 29.8,
+						"battery_level": 81,
+						"fill_organic": 22,
+						"fill_recycle": 37,
+						"fill_non_recycle": 40,
+						"fill_hazardous": 11,
+						"recorded_at": 1774269304017
+					}
+				}
+			},
+			"bin_003": {
+				"logs": {
+					"raw_004": {
+						"temperature": 32.2,
+						"battery_level": 56,
+						"fill_organic": 68,
+						"fill_recycle": 73,
+						"fill_non_recycle": 84,
+						"fill_hazardous": 41,
+						"recorded_at": 1774269312017
+					}
+				}
+			}
+		},
+		"bin_sensor_logs": {
+			"bin_001_2026-03-23_12h": {
+				"bin_id": "bin_001",
+				"period": "H12",
+				"date": "2026-03-23",
+				"avg_temperature": 31.2,
+				"min_temperature": 30.9,
+				"max_temperature": 31.4,
+				"avg_battery": 69,
+				"avg_fill_organic": 45,
+				"avg_fill_recycle": 58,
+				"avg_fill_non_recycle": 66,
+				"avg_fill_hazardous": 27,
+				"sample_count": 2,
+				"recorded_at": { "seconds": 1774269360, "nanos": 0 }
+			},
+			"bin_003_2026-03-23_12h": {
+				"bin_id": "bin_003",
+				"period": "H12",
+				"date": "2026-03-23",
+				"avg_temperature": 32.2,
+				"min_temperature": 32.2,
+				"max_temperature": 32.2,
+				"avg_battery": 56,
+				"avg_fill_organic": 68,
+				"avg_fill_recycle": 73,
+				"avg_fill_non_recycle": 84,
+				"avg_fill_hazardous": 41,
+				"sample_count": 1,
+				"recorded_at": { "seconds": 1774269360, "nanos": 0 }
+			}
+		},
+		"classification_logs": {
+			"cls_001": {
+				"log_id": "cls_001",
+				"bin_id": "bin_001",
+				"image_url": "https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=1200&q=80",
+				"classification_result": "PLASTIC",
+				"confidence_score": 0.93,
+				"classified_at": { "seconds": 1774269200, "nanos": 0 }
+			},
+			"cls_003": {
+				"log_id": "cls_003",
+				"bin_id": "bin_002",
+				"image_url": "https://images.unsplash.com/photo-1605600659873-d808a13e4d2a?auto=format&fit=crop&w=1200&q=80",
+				"classification_result": "PAPER",
+				"confidence_score": 0.9,
+				"classified_at": { "seconds": 1774269230, "nanos": 0 }
+			},
+			"cls_002": {
+				"log_id": "cls_002",
+				"bin_id": "bin_003",
+				"image_url": "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?auto=format&fit=crop&w=1200&q=80",
+				"classification_result": "ORGANIC",
+				"confidence_score": 0.88,
+				"classified_at": { "seconds": 1774269250, "nanos": 0 }
+			}
+		},
+		"alerts": {
+			"alert_001": {
+				"id": "alert_001",
+				"bin_id": "bin_003",
+				"alert_type": "FULL_BIN",
+				"severity": "WARNING",
+				"message": "Bin 003 is over 80 percent full",
+				"status": "NEW",
+				"resolved_by": "",
+				"created_at": { "seconds": 1774269350, "nanos": 0 },
+				"resolved_at": null,
+				"fill_levels_at_alert": {
+					"fillOrganic": 68,
+					"fillRecycle": 73,
+					"fillNonRecycle": 84,
+					"fillHazardous": 41
+				},
+				"fill_levels_at_resolve": {}
+			}
+		},
+		"trash_categories": {
+			"cat_organic": {
+				"id": "cat_organic",
+				"name": "Organic",
+				"type": "ORGANIC",
+				"icon_url": "https://example.com/icons/organic.png",
+				"description": "Food waste and biodegradable materials"
+			},
+			"cat_recycle": {
+				"id": "cat_recycle",
+				"name": "Recycle",
+				"type": "RECYCLE",
+				"icon_url": "https://example.com/icons/recycle.png",
+				"description": "Paper, plastic, metal, glass"
+			},
+			"cat_hazardous": {
+				"id": "cat_hazardous",
+				"name": "Hazardous",
+				"type": "HAZARDOUS",
+				"icon_url": "https://example.com/icons/hazardous.png",
+				"description": "Batteries, chemicals, toxic items"
+			}
+		},
+		"users": {
+			"admin_uid_seed": {
+				"username": "System Admin",
+				"email": "admin@gmail.com",
+				"role": "ADMIN",
+				"avatar_url": "",
+				"created_at": { "seconds": 1774269000, "nanos": 0 }
+			},
+			"staff_uid_seed": {
+				"username": "Cleanup Staff",
+				"email": "staff@example.com",
+				"role": "STAFF",
+				"avatar_url": "",
+				"created_at": { "seconds": 1774269000, "nanos": 0 }
+			}
+		}
+	},
+	"apiSeedExamples": {
+		"iot_post_sensor_logs": {
+			"endpoint": "/api/v1/iot/bins/bin_001/sensor-logs",
+			"headers": {
+				"X-IoT-API-Key": "<iot-api-key>"
+			},
+			"body": {
+				"temperature": 31.1,
+				"batteryLevel": 72,
+				"fillOrganic": 44,
+				"fillRecycle": 57,
+				"fillNonRecycle": 65,
+				"fillHazardous": 26
+			}
+		},
+		"system_post_alert": {
+			"endpoint": "/api/v1/system/alerts",
+			"headers": {
+				"X-IoT-API-Key": "<iot-api-key>"
+			},
+			"body": {
+				"binId": "bin_003",
+				"alertType": "FULL_BIN",
+				"severity": "WARNING",
+				"message": "Bin 003 nearly full"
+			}
+		}
+	}
+}

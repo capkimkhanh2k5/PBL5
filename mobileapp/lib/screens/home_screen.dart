@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'bin_detail_screen.dart';
 import 'ai_chat_screen.dart';
+import '../services/api_service.dart';
+import '../services/auth_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,20 +14,119 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
+  final _authService = AuthService();
   String _query = '';
+  bool _isLoading = true;
+  String? _error;
 
-  // Data mẫu (b1,b2,b3 = TC-01, TC-02, TC-03...) -> bạn thêm ở đây
-  final List<TrashCanItem> _items = const [
-    TrashCanItem(id: "TC-01", percent: 0.68, lastEmptiedText: "Last emptied: 2 days ago"),
-    TrashCanItem(id: "TC-02", percent: 0.42, lastEmptiedText: "Last emptied: 1 day ago"),
-    TrashCanItem(id: "TC-03", percent: 0.90, lastEmptiedText: "Last emptied: 5 hours ago"),
-    TrashCanItem(id: "TC-04", percent: 0.15, lastEmptiedText: "Last emptied: today"),
-  ];
+  List<TrashCanItem> _items = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
 
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final api = ApiService(authService: _authService);
+      final results = await Future.wait([
+        api.getAllBins(),
+        api.getAllBinStatuses(),
+      ]);
+
+      final bins = results[0];
+      final statuses = results[1];
+      final statusById = <String, Map<String, dynamic>>{
+        for (final s in statuses)
+          if ((s['id'] ?? '').toString().isNotEmpty) (s['id'] ?? '').toString(): s,
+      };
+
+      final items = <TrashCanItem>[];
+
+      for (final b in bins) {
+        final id = (b['id'] ?? '').toString();
+        if (id.isEmpty) continue;
+
+        final status = statusById[id];
+        final percent = _calcPercent(status);
+        final lastUpdated = _toInt(status?['lastUpdated']);
+
+        items.add(
+          TrashCanItem(
+            id: id,
+            percent: percent,
+            lastEmptiedText: _relativeTime(lastUpdated),
+          ),
+        );
+      }
+
+      if (items.isEmpty && statuses.isNotEmpty) {
+        for (final s in statuses) {
+          final id = (s['id'] ?? '').toString();
+          if (id.isEmpty) continue;
+          items.add(
+            TrashCanItem(
+              id: id,
+              percent: _calcPercent(s),
+              lastEmptiedText: _relativeTime(_toInt(s['lastUpdated'])),
+            ),
+          );
+        }
+      }
+
+      if (!mounted) return;
+      setState(() => _items = items);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Failed to load bins from backend.');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  static int? _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  static double _calcPercent(Map<String, dynamic>? status) {
+    if (status == null) return 0.0;
+    final values = <int>[];
+    for (final key in ['fillOrganic', 'fillRecycle', 'fillNonRecycle', 'fillHazardous']) {
+      final v = _toInt(status[key]);
+      if (v != null) values.add(v.clamp(0, 100));
+    }
+    if (values.isEmpty) return 0.0;
+    final avg = values.reduce((a, b) => a + b) / values.length;
+    return (avg / 100).clamp(0.0, 1.0);
+  }
+
+  static String _relativeTime(int? epochMillis) {
+    if (epochMillis == null || epochMillis <= 0) {
+      return 'Last updated: unknown';
+    }
+    final now = DateTime.now();
+    final at = DateTime.fromMillisecondsSinceEpoch(epochMillis);
+    final diff = now.difference(at);
+    if (diff.inMinutes < 1) return 'Last updated: just now';
+    if (diff.inHours < 1) return 'Last updated: ${diff.inMinutes}m ago';
+    if (diff.inDays < 1) return 'Last updated: ${diff.inHours}h ago';
+    return 'Last updated: ${diff.inDays}d ago';
   }
 
   @override
@@ -214,16 +315,41 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 10),
 
               // List Trash can cards
-              ListView.separated(
-                itemCount: filtered.length,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final it = filtered[index];
-                  return TrashCanCard(item: it);
-                },
-              ),
+              if (_isLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 30),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Column(
+                    children: [
+                      Text(_error!, style: const TextStyle(color: Colors.red)),
+                      const SizedBox(height: 8),
+                      ElevatedButton(
+                        onPressed: _loadData,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              else if (filtered.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Text('No bins found.'),
+                )
+              else
+                ListView.separated(
+                  itemCount: filtered.length,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final it = filtered[index];
+                    return TrashCanCard(item: it);
+                  },
+                ),
             ],
           ),
         ),

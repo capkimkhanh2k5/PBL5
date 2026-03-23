@@ -1,7 +1,100 @@
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
+import '../services/auth_service.dart';
 
-class ScheduleScreen extends StatelessWidget {
+class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
+
+  @override
+  State<ScheduleScreen> createState() => _ScheduleScreenState();
+}
+
+class _ScheduleScreenState extends State<ScheduleScreen> {
+  final _authService = AuthService();
+  late final ApiService _api;
+  bool _loading = true;
+  bool _triggering = false;
+  bool _reminderEnabled = false;
+  String? _error;
+  List<_PickupItem> _items = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _api = ApiService(authService: _authService);
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final schedule = await _api.getPickupSchedule(limit: 40);
+
+      final items = schedule.map((row) {
+        final id = (row['binId'] ?? 'Unknown').toString();
+        final avg = _toInt(row['avgFill']) ?? 0;
+        final predictedMs = _toInt(row['predictedPickupAt'])?.toInt() ?? 0;
+        final eta = predictedMs > 0
+            ? DateTime.fromMillisecondsSinceEpoch(predictedMs)
+            : DateTime.now().add(const Duration(days: 1));
+        final priority = (row['priority'] ?? 'LOW').toString();
+        return _PickupItem(binId: id, avgFill: avg, eta: eta, priority: priority);
+      }).toList();
+
+      if (!mounted) return;
+      setState(() => _items = items);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Failed to load schedule from backend.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _triggerAndReload() async {
+    if (_triggering) return;
+    setState(() => _triggering = true);
+    try {
+      await _api.triggerAggregateSensorLogs();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Triggered aggregate. Refreshing schedule...')),
+      );
+      await Future<void>.delayed(const Duration(seconds: 2));
+      await _load();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cannot trigger aggregate right now.')),
+      );
+    } finally {
+      if (mounted) setState(() => _triggering = false);
+    }
+  }
+
+  void _toggleReminder() {
+    if (_items.isEmpty) return;
+    final next = _items.first;
+    setState(() => _reminderEnabled = !_reminderEnabled);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _reminderEnabled
+              ? 'Reminder enabled for ${next.binId} at ${next.formatted}'
+              : 'Reminder disabled',
+        ),
+      ),
+    );
+  }
+
+  static int? _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
 
   static const bgColor = Color(0xFFEAF6EE);
   static const primary = Color(0xFF2F6B3D);
@@ -23,11 +116,62 @@ class ScheduleScreen extends StatelessWidget {
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!),
+                        const SizedBox(height: 8),
+                        ElevatedButton(onPressed: _load, child: const Text('Retry')),
+                      ],
+                    ),
+                  )
+                : _items.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 48),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.event_busy, size: 54, color: Colors.black54),
+                              const SizedBox(height: 12),
+                              const Text(
+                                'Chưa có lịch thu gom',
+                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Kéo xuống để tải lại hoặc trigger aggregate để tạo lịch mới.',
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton.icon(
+                                onPressed: _triggering ? null : _triggerAndReload,
+                                icon: _triggering
+                                    ? const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.play_circle_fill),
+                                label: Text(_triggering ? 'Đang tạo...' : 'Trigger Aggregate'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                : Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_items.isNotEmpty)
             /// NEXT PICKUP CARD
             Container(
               padding: const EdgeInsets.all(20),
@@ -41,7 +185,7 @@ class ScheduleScreen extends StatelessWidget {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 18,
                     offset: const Offset(0, 10),
                   ),
@@ -54,14 +198,14 @@ class ScheduleScreen extends StatelessWidget {
                       const Icon(Icons.calendar_month,
                           color: primary, size: 28),
                       const SizedBox(width: 12),
-                      const Text(
-                        "Next Pickup • TC-01",
-                        style: TextStyle(
+                      Text(
+                        "Next Pickup • ${_items.isNotEmpty ? _items.first.binId : '-'}",
+                        style: const TextStyle(
                             fontSize: 16, fontWeight: FontWeight.w600),
                       ),
-                      const Text(
-                        "In 2 days",
-                        style: TextStyle(
+                      Text(
+                        _items.isNotEmpty ? "~${_items.first.daysLeft} days" : "",
+                        style: const TextStyle(
                           color: primary,
                           fontWeight: FontWeight.w600,
                         ),
@@ -69,9 +213,9 @@ class ScheduleScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  const Text(
-                    "Thursday | 7:30 AM",
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  Text(
+                    _items.isNotEmpty ? _items.first.formatted : "No upcoming pickups",
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
                   const Text(
@@ -94,15 +238,15 @@ class ScheduleScreen extends StatelessWidget {
                           ),
                           elevation: 0,
                         ),
-                        onPressed: () {},
                         icon: const Icon(
                           Icons.notifications,
                           size: 18,
                           color: Colors.white,
                         ),
-                        label: const Text(
-                          "Remind Me",
-                          style: TextStyle(
+                        onPressed: _items.isEmpty ? null : _toggleReminder,
+                        label: Text(
+                          _reminderEnabled ? "Reminder On" : "Remind Me",
+                          style: const TextStyle(
                             fontWeight: FontWeight.w600,
                             color: Colors.white,
                           ),
@@ -123,10 +267,10 @@ class ScheduleScreen extends StatelessWidget {
 
             const SizedBox(height: 14),
 
-            _pickupTile("Mon, Mar 4", "7:30 AM · TC-02", "In 2 days"),
-
-            _pickupTile("Thu, Mar 3", "7:30 AM · Tc-03", "In 2 days"),
+            for (final it in _items.skip(1).take(5))
+              _pickupTile(it.formattedDate, 'Estimated · ${it.binId}', '${it.priority} · In ${it.daysLeft} days'),
           ],
+        ),
         ),
       ),
     );
@@ -141,7 +285,7 @@ class ScheduleScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 14,
             offset: const Offset(0, 8),
           )
@@ -183,4 +327,26 @@ class ScheduleScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PickupItem {
+  final String binId;
+  final int avgFill;
+  final DateTime eta;
+  final String priority;
+
+  _PickupItem({required this.binId, required this.avgFill, required this.eta, required this.priority});
+
+  int get daysLeft {
+    final diff = eta.difference(DateTime.now()).inDays;
+    return diff < 0 ? 0 : diff;
+  }
+
+  String get formatted {
+    final h = eta.hour.toString().padLeft(2, '0');
+    final m = eta.minute.toString().padLeft(2, '0');
+    return '${eta.day}/${eta.month}/${eta.year} | $h:$m';
+  }
+
+  String get formattedDate => '${eta.day}/${eta.month}/${eta.year}';
 }

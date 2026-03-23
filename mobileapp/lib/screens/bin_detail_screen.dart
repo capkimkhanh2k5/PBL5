@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'history_screen.dart';
+import '../services/api_service.dart';
+import '../services/auth_service.dart';
 
 class BinDetailScreen extends StatefulWidget {
   const BinDetailScreen({super.key, required this.binId});
@@ -10,7 +12,10 @@ class BinDetailScreen extends StatefulWidget {
 }
 
 class _BinDetailScreenState extends State<BinDetailScreen> {
-  late final _BinDetail data;
+  final _authService = AuthService();
+  _BinDetail? data;
+  bool _isLoading = true;
+  String? _error;
 
   static const bg = Color(0xFFEAF6EE);
   static const primary = Color(0xFF2F6B3D);
@@ -18,11 +23,127 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
   @override
   void initState() {
     super.initState();
-    data = FakeBinRepo.getDetail(widget.binId); // ✅ fake data theo ID
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final api = ApiService(authService: _authService);
+      final results = await Future.wait([
+        api.getAllBinStatuses(),
+        api.getRecentSensorLogs(widget.binId, limit: 24),
+      ]);
+      final statuses = results[0];
+      final status = statuses.cast<Map<String, dynamic>?>().firstWhere(
+            (e) => (e?['id'] ?? '').toString() == widget.binId,
+            orElse: () => null,
+          );
+      final logs = results[1];
+
+      int fillOrganic = _toInt(status?['fillOrganic']) ?? 0;
+      int fillRecycle = _toInt(status?['fillRecycle']) ?? 0;
+      int fillNonRecycle = _toInt(status?['fillNonRecycle']) ?? 0;
+      int fillHazardous = _toInt(status?['fillHazardous']) ?? 0;
+
+      if (status == null && logs.isNotEmpty) {
+        final latest = logs.first;
+        fillOrganic = _toInt(latest['fillOrganic']) ?? fillOrganic;
+        fillRecycle = _toInt(latest['fillRecycle']) ?? fillRecycle;
+        fillNonRecycle = _toInt(latest['fillNonRecycle']) ?? fillNonRecycle;
+        fillHazardous = _toInt(latest['fillHazardous']) ?? fillHazardous;
+      }
+
+      final values = [fillOrganic, fillRecycle, fillNonRecycle, fillHazardous];
+      final avgFill = values.reduce((a, b) => a + b) ~/ values.length;
+
+      double etaDays = 0;
+      if (logs.length >= 2) {
+        final newest = logs.first;
+        final oldest = logs.last;
+        final newestAvg = _avgFromLog(newest);
+        final oldestAvg = _avgFromLog(oldest);
+        final newestAt = _toInt(newest['recordedAt']);
+        final oldestAt = _toInt(oldest['recordedAt']);
+        if (newestAt != null && oldestAt != null && newestAt > oldestAt) {
+          final hours = (newestAt - oldestAt) / 3600000.0;
+          final delta = newestAvg - oldestAvg;
+          if (hours > 0 && delta > 0) {
+            final ratePerHour = delta / hours;
+            etaDays = ((100 - avgFill) / ratePerHour) / 24.0;
+          }
+        }
+      }
+      if (etaDays <= 0 || etaDays.isNaN || etaDays.isInfinite) {
+        etaDays = ((100 - avgFill) / 15.0).clamp(0.2, 14.0).toDouble();
+      }
+
+      if (!mounted) return;
+      setState(() {
+        data = _BinDetail(
+          fillPercent: avgFill,
+          suggestDumpAt: 90,
+          etaDays: etaDays,
+          fillOrganic: fillOrganic,
+          fillRecycle: fillRecycle,
+          fillNonRecycle: fillNonRecycle,
+          fillHazardous: fillHazardous,
+        );
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Failed to load bin detail from backend.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  static int? _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  static int _avgFromLog(Map<String, dynamic> log) {
+    final values = [
+      _toInt(log['fillOrganic']) ?? 0,
+      _toInt(log['fillRecycle']) ?? 0,
+      _toInt(log['fillNonRecycle']) ?? 0,
+      _toInt(log['fillHazardous']) ?? 0,
+    ];
+    return values.reduce((a, b) => a + b) ~/ values.length;
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_error != null || data == null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.binId)),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_error ?? 'Cannot load data'),
+              const SizedBox(height: 12),
+              ElevatedButton(onPressed: _loadData, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final d = data!;
+
     return Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
@@ -62,7 +183,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
 
                   
 
-                  _gauge(data.fillPercent),
+                  _gauge(d.fillPercent),
 
 
                   
@@ -86,27 +207,26 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                     childAspectRatio: 1.9,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    children: const [
+                    children: [
                       WasteMiniCard(
                         title: "Rác hữu cơ",
-                        percent: 0.70,
-                        color: Color(0xFF2D8CFF),
+                        percent: d.fillOrganic / 100,
+                        color: const Color(0xFF2D8CFF),
                       ),
                       WasteMiniCard(
                         title: "Nhựa & giấy",
-                        percent: 0.45,
-                        color: Color(0xFFF6C000),
+                        percent: d.fillRecycle / 100,
+                        color: const Color(0xFFF6C000),
                       ),
                       WasteMiniCard(
                         title: "Kim loại",
-                        percent: 0.20,
-                        color: Color(0xFFFF8A00),
+                        percent: d.fillNonRecycle / 100,
+                        color: const Color(0xFFFF8A00),
                       ),
                       WasteMiniCard(
                         title: "Rác khác",
-                        
-                        percent: 0.55,
-                        color: Color(0xFFFF3B30),
+                        percent: d.fillHazardous / 100,
+                        color: const Color(0xFFFF3B30),
                       ),
                     ],
                   ),
@@ -141,12 +261,12 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Nên đổ khi đạt: ${data.suggestDumpAt}%',
+                    'Nên đổ khi đạt: ${d.suggestDumpAt}%',
                     style: const TextStyle(fontSize: 14, color: Colors.black87),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Dự kiến đầy trong: ~ ${data.etaDays.toStringAsFixed(1)} ngày',
+                    'Dự kiến đầy trong: ~ ${d.etaDays.toStringAsFixed(1)} ngày',
                     style: const TextStyle(fontSize: 14, color: Colors.black87),
                   ),
                   const SizedBox(height: 14),
@@ -342,32 +462,22 @@ class _BinDetail {
   final int fillPercent;
   final int suggestDumpAt;
   final double etaDays;
+  final int fillOrganic;
+  final int fillRecycle;
+  final int fillNonRecycle;
+  final int fillHazardous;
 
   const _BinDetail({
     required this.fillPercent,
     required this.suggestDumpAt,
     required this.etaDays,
+    required this.fillOrganic,
+    required this.fillRecycle,
+    required this.fillNonRecycle,
+    required this.fillHazardous,
   });
 }
 
-class FakeBinRepo {
-  // Fake data theo TC-xx (mỗi TC khác nhau)
-  static _BinDetail getDetail(String binId) {
-    const map = <String, _BinDetail>{
-      'TC-01': _BinDetail(fillPercent: 72, suggestDumpAt: 90, etaDays: 1.8),
-      'TC-02': _BinDetail(fillPercent: 42, suggestDumpAt: 85, etaDays: 3.2),
-      'TC-03': _BinDetail(fillPercent: 90, suggestDumpAt: 90, etaDays: 0.3),
-      'TC-04': _BinDetail(fillPercent: 15, suggestDumpAt: 80, etaDays: 6.0),
-    };
-
-    // nếu TC-05 trở đi chưa có thì random nhẹ theo hash
-    if (map.containsKey(binId)) return map[binId]!;
-    final n = binId.codeUnits.fold<int>(0, (a, b) => a + b);
-    final p = 20 + (n % 75); // 20..94
-    final eta = (100 - p) / 30.0; // 0.2..2.6
-    return _BinDetail(fillPercent: p, suggestDumpAt: 90, etaDays: eta);
-  }
-}
 class MultiColorRingPainter extends CustomPainter {
   final int percent;
   MultiColorRingPainter(this.percent);

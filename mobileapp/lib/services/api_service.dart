@@ -61,6 +61,65 @@ class ApiService {
     return response.data;
   }
 
+  Future<List<Map<String, dynamic>>> getAllBins() async {
+    final response = await _dio.get('/bins');
+    final data = response.data;
+    if (data is List) {
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    return const [];
+  }
+
+  Future<List<Map<String, dynamic>>> getAllBinStatuses() async {
+    final response = await _dio.get('/iot/bins/status');
+    final data = response.data;
+    if (data is List) {
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    return const [];
+  }
+
+  Future<Map<String, dynamic>> getBinStatus(String binId) async {
+    final response = await _dio.get('/iot/bins/$binId/status');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> getRecentSensorLogs(String binId, {int limit = 30}) async {
+    final response = await _dio.get('/iot/bins/$binId/sensor-logs', queryParameters: {'limit': limit});
+    final data = response.data;
+    if (data is List) {
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    return const [];
+  }
+
+  Future<List<Map<String, dynamic>>> getClassificationLogs({String? binId, int limit = 20}) async {
+    final response = await _dio.get('/system/classification-logs', queryParameters: {
+      'limit': limit,
+      if (binId != null && binId.isNotEmpty) 'binId': binId,
+    });
+    final data = response.data;
+    if (data is List) {
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    return const [];
+  }
+
+  Future<List<Map<String, dynamic>>> getPickupSchedule({int limit = 40}) async {
+    final response = await _dio.get('/system/pickup-schedule', queryParameters: {
+      'limit': limit,
+    });
+    final data = response.data;
+    if (data is List) {
+      return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    return const [];
+  }
+
+  Future<void> triggerAggregateSensorLogs() async {
+    await _dio.post('/trigger/aggregate-sensor-logs');
+  }
+
   // Generic GET
   Future<Response> get(String path, {Map<String, dynamic>? queryParams}) {
     return _dio.get(path, queryParameters: queryParams);

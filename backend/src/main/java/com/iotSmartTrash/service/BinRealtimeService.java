@@ -1,92 +1,99 @@
 package com.iotSmartTrash.service;
 
-import com.google.cloud.firestore.DocumentReference;
-import com.google.cloud.firestore.DocumentSnapshot;
-import com.google.cloud.firestore.Firestore;
-import com.google.cloud.firestore.QueryDocumentSnapshot;
-import com.iotSmartTrash.exception.ResourceNotFoundException;
 import com.iotSmartTrash.exception.ServiceException;
+import com.iotSmartTrash.model.BinMetadata;
+import com.iotSmartTrash.model.BinRawSensorLog;
 import com.iotSmartTrash.model.BinRealtimeStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 
 /**
- * Service quản lý trạng thái realtime của thùng rác trên Firestore.
- * Collection: bin_realtime_status/{bin_id}
+ * Service trạng thái thùng rác theo mô hình non-realtime:
+ * trạng thái hiện tại được suy ra từ raw sensor logs mới nhất.
  */
 @Service
 @RequiredArgsConstructor
 public class BinRealtimeService {
 
-    private static final String COLLECTION_NAME = "bin_realtime_status";
+    private static final long OFFLINE_THRESHOLD_MS = 2 * 60 * 1000L;
 
-    private final Firestore firestore;
-
-    /**
-     * Raspi gọi mỗi 30 giây để cập nhật trạng thái hiện tại của thùng rác.
-     * Sử dụng set() để upsert (ghi đè nếu đã tồn tại).
-     */
-    public String updateStatus(String binId, BinRealtimeStatus status) {
-        try {
-            status.setId(binId);
-            status.setLastUpdated(System.currentTimeMillis());
-            return firestore.collection(COLLECTION_NAME).document(binId)
-                    .set(status).get().getUpdateTime().toString();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot update bin realtime status: operation interrupted", e);
-        } catch (ExecutionException e) {
-            throw new ServiceException("Cannot update bin realtime status: " + binId, e.getCause());
-        }
-    }
+    private final BinRawSensorLogService rawSensorLogService;
+    private final BinMetadataService binMetadataService;
 
     /**
-     * Lấy trạng thái realtime của 1 thùng rác.
+     * Lấy trạng thái hiện tại của 1 thùng rác từ raw log mới nhất.
      */
     public BinRealtimeStatus getStatus(String binId) {
-        try {
-            DocumentSnapshot doc = firestore.collection(COLLECTION_NAME).document(binId).get().get();
-            if (!doc.exists()) {
-                throw new ResourceNotFoundException("Bin realtime status", binId);
-            }
-            BinRealtimeStatus status = doc.toObject(BinRealtimeStatus.class);
-            if (status != null) {
-                status.setId(doc.getId());
-            }
-            return status;
-        } catch (ResourceNotFoundException e) {
-            throw e;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot get bin realtime status: operation interrupted", e);
-        } catch (ExecutionException e) {
-            throw new ServiceException("Cannot get bin realtime status: " + binId, e.getCause());
+        // Ensure bin exists in metadata; otherwise return 404 as before.
+        binMetadataService.getBinById(binId);
+
+        List<BinRawSensorLog> logs = rawSensorLogService.getRecentLogsForBin(binId, 1);
+        if (logs.isEmpty()) {
+            return BinRealtimeStatus.builder()
+                    .id(binId)
+                    .status("UNKNOWN")
+                    .temperature(0.0)
+                    .batteryLevel(0)
+                    .fillOrganic(0)
+                    .fillRecycle(0)
+                    .fillNonRecycle(0)
+                    .fillHazardous(0)
+                    .lastUpdated(0L)
+                    .build();
         }
+        return toStatus(binId, logs.get(0));
     }
 
     /**
-     * Lấy trạng thái realtime của tất cả thùng rác.
+     * Lấy trạng thái hiện tại của tất cả thùng rác theo metadata.
      */
     public List<BinRealtimeStatus> getAllStatuses() {
         try {
             List<BinRealtimeStatus> statuses = new ArrayList<>();
-            for (QueryDocumentSnapshot doc : firestore.collection(COLLECTION_NAME).get().get().getDocuments()) {
-                BinRealtimeStatus status = doc.toObject(BinRealtimeStatus.class);
-                if (status != null) {
-                    status.setId(doc.getId());
-                    statuses.add(status);
+            List<BinMetadata> bins = binMetadataService.getAllBins();
+            for (BinMetadata bin : bins) {
+                String binId = bin.getId();
+                List<BinRawSensorLog> logs = rawSensorLogService.getRecentLogsForBin(binId, 1);
+                if (logs.isEmpty()) {
+                    statuses.add(BinRealtimeStatus.builder()
+                            .id(binId)
+                            .status("UNKNOWN")
+                            .temperature(0.0)
+                            .batteryLevel(0)
+                            .fillOrganic(0)
+                            .fillRecycle(0)
+                            .fillNonRecycle(0)
+                            .fillHazardous(0)
+                            .lastUpdated(0L)
+                            .build());
+                    continue;
                 }
+                statuses.add(toStatus(binId, logs.get(0)));
             }
             return statuses;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot get all bin realtime statuses: operation interrupted", e);
-        } catch (ExecutionException e) {
-            throw new ServiceException("Cannot get all bin realtime statuses", e.getCause());
+        } catch (Exception e) {
+            throw new ServiceException("Cannot get all bin statuses from raw logs", e);
         }
+    }
+
+    private BinRealtimeStatus toStatus(String binId, BinRawSensorLog log) {
+        long lastUpdated = log.getRecordedAt() != null ? log.getRecordedAt() : 0L;
+        long ageMs = System.currentTimeMillis() - lastUpdated;
+        String status = (lastUpdated > 0 && ageMs <= OFFLINE_THRESHOLD_MS) ? "ONLINE" : "OFFLINE";
+
+        return BinRealtimeStatus.builder()
+                .id(binId)
+                .status(status)
+                .temperature(log.getTemperature())
+                .batteryLevel(log.getBatteryLevel())
+                .fillOrganic(log.getFillOrganic())
+                .fillRecycle(log.getFillRecycle())
+                .fillNonRecycle(log.getFillNonRecycle())
+                .fillHazardous(log.getFillHazardous())
+                .lastUpdated(lastUpdated)
+                .build();
     }
 }

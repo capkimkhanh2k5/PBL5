@@ -1,7 +1,6 @@
 package com.iotSmartTrash.controller;
 
 import com.iotSmartTrash.dto.BinRealtimeStatusResponseDTO;
-import com.iotSmartTrash.dto.BinStatusUpdateDTO;
 import com.iotSmartTrash.dto.RawSensorLogCreateDTO;
 import com.iotSmartTrash.model.BinRawSensorLog;
 import com.iotSmartTrash.model.BinRealtimeStatus;
@@ -9,6 +8,7 @@ import com.iotSmartTrash.service.BinRawSensorLogService;
 import com.iotSmartTrash.service.BinRealtimeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -32,16 +32,13 @@ public class IoTSensorController {
     // ━━━━━━━━━━━━━━━━━ Bin Realtime Status ━━━━━━━━━━━━━━━━━
 
     /**
-        * Raspi gọi mỗi 30 giây để cập nhật trạng thái thùng rác.
-     * Replaces RTDB write to: bins/{bin_id}
+     * Legacy endpoint intentionally disabled.
+     * Device must send only /sensor-logs.
      */
     @PostMapping("/bins/{binId}/status")
-    public ResponseEntity<String> updateBinStatus(
-            @PathVariable String binId,
-            @Valid @RequestBody BinStatusUpdateDTO dto) {
-        BinRealtimeStatus status = dto.toModel();
-        String updateTime = binRealtimeService.updateStatus(binId, status);
-        return ResponseEntity.ok("Bin status updated at " + updateTime);
+    public ResponseEntity<String> rejectLegacyStatusWrite(@PathVariable String binId) {
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body("Deprecated endpoint. Use POST /api/v1/iot/bins/{binId}/sensor-logs only.");
     }
 
     /**
@@ -78,5 +75,16 @@ public class IoTSensorController {
         BinRawSensorLog log = dto.toModel();
         String updateTime = rawSensorLogService.addLog(binId, log);
         return ResponseEntity.ok("Sensor log saved at " + updateTime);
+    }
+
+    /**
+     * Lấy raw sensor logs gần nhất của 1 thùng rác.
+     */
+    @GetMapping("/bins/{binId}/sensor-logs")
+    public ResponseEntity<List<BinRawSensorLog>> getRecentSensorLogs(
+            @PathVariable String binId,
+            @RequestParam(defaultValue = "30") int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        return ResponseEntity.ok(rawSensorLogService.getRecentLogsForBin(binId, safeLimit));
     }
 }
