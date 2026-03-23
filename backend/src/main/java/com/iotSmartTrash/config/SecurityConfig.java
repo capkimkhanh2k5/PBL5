@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -43,12 +44,12 @@ public class SecurityConfig {
                                                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
 
                                                 // IoT endpoints — protected by IoTApiKeyFilter (X-IoT-API-Key header)
-                                                .requestMatchers("/api/v1/iot/**").permitAll()
-                                                .requestMatchers("/api/v1/system/classification-logs").permitAll()
-                                                .requestMatchers("/api/v1/system/alerts").permitAll()
+                                                .requestMatchers(HttpMethod.POST, "/api/v1/iot/**").permitAll()
+                                                .requestMatchers(HttpMethod.POST, "/api/v1/system/classification-logs").permitAll()
+                                                .requestMatchers(HttpMethod.POST, "/api/v1/system/alerts").permitAll()
 
-                                                // Dev/test only — disable or protect before production deploy
-                                                .requestMatchers("/api/v1/trigger/**").permitAll()
+                                                // Manual trigger should require authentication
+                                                .requestMatchers("/api/v1/trigger/**").authenticated()
 
                                                 // All other requests require Firebase Bearer Token
                                                 .anyRequest().authenticated())

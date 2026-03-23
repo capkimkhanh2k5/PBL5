@@ -17,6 +17,10 @@ RUN mvn package -DskipTests -B
 # ============================================
 FROM eclipse-temurin:21-jre-jammy
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Security: non-root user
 RUN groupadd -g 1001 appgroup && \
     useradd -u 1001 -g appgroup -s /bin/false appuser
@@ -32,7 +36,9 @@ RUN mkdir -p /app/config && chown appuser:appgroup /app/config
 USER 1001
 EXPOSE 8080
 
+ENV JAVA_OPTS=""
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8080/api/v1/health || exit 1
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

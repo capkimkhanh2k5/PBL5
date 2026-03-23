@@ -32,7 +32,7 @@ public class IoTSensorController {
     // ━━━━━━━━━━━━━━━━━ Bin Realtime Status ━━━━━━━━━━━━━━━━━
 
     /**
-     * Raspi gọi mỗi 300 giây để cập nhật trạng thái thùng rác.
+        * Raspi gọi mỗi 30 giây để cập nhật trạng thái thùng rác.
      * Replaces RTDB write to: bins/{bin_id}
      */
     @PostMapping("/bins/{binId}/status")

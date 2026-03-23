@@ -8,13 +8,15 @@ services:
       - "${BACKEND_PORT:-8080}:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=docker
-      # Firebase
-      - FIREBASE_DATABASE_URL=${FIREBASE_DATABASE_URL:-https://pbl5-f21e6-default-rtdb.asia-southeast1.firebasedatabase.app}
-      - FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET:-pbl5-f21e6.appspot.com}
-      # IoT API Key
-      - IOT_API_KEY=${IOT_API_KEY:-iot-secret-key-pbl5}
-      # CORS
+      # Firebase (resolved by Spring relaxed binding)
+      - FIREBASE_SERVICE_ACCOUNT=${FIREBASE_SERVICE_ACCOUNT:-file:/app/config/serviceAccountKey.json}
+      - FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET:-pbl5-f21e6.firebasestorage.app}
+      # IoT API key
+      - IOT_API_KEY=${IOT_API_KEY:-pbl5-smart-trash-iot-key-2026-secure-dev-mode}
+      # CORS (comma-separated)
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+    volumes:
+      - ./backend/src/main/resources/serviceAccountKey.json:/app/config/serviceAccountKey.json:ro
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8080/api/v1/health" ]
       interval: 30s
@@ -22,32 +24,6 @@ services:
       start_period: 40s
       retries: 3
     restart: unless-stopped
-    networks:
-      - pbl5-network
-
-  model:
-    build:
-      context: ./Model
-      dockerfile: Dockerfile
-    container_name: pbl5-model
-    ports:
-      - "${MODEL_PORT:-9999}:9999"
-    environment:
-      - FLASK_HOST=0.0.0.0
-      - PYTHONUNBUFFERED=1
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9999/" ]
-      interval: 30s
-      timeout: 10s
-      start_period: 30s
-      retries: 3
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 512M
     networks:
       - pbl5-network
 

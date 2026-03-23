@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'bin_detail_screen.dart';
 import 'ai_chat_screen.dart';
 
@@ -64,7 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       Positioned(
                         left: 16,
-                        top: 16,
+                        top: 30,
                         right: 16,
                         child: Row(
                           children: [
@@ -76,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     "Hello, Hellen!",
                                     style: TextStyle(
                                       color: Colors.white,
-                                      fontSize: 18,
+                                      fontSize: 30,
                                       fontWeight: FontWeight.w800,
                                     ),
                                   ),
@@ -87,20 +88,92 @@ class _HomeScreenState extends State<HomeScreen> {
                                       const SizedBox(width: 6),
                                       Text(
                                         "Sun Cloudy 22°",
-                                        style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13),
+                                        style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 15),
                                       ),
-                                      const SizedBox(width: 6),
-                                      Icon(Icons.keyboard_arrow_down, color: Colors.white.withOpacity(0.9), size: 18),
                                     ],
                                   ),
                                 ],
                               ),
                             ),
                             const SizedBox(width: 12),
-                            CircleAvatar(
-                              radius: 18,
-                              backgroundColor: Colors.white.withOpacity(0.25),
-                              child: const Icon(Icons.person, color: Colors.white),
+                            InkWell(
+                              borderRadius: BorderRadius.circular(20),
+                              onTap: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) {
+                                    return AlertDialog(
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      title: const Text(
+                                        "Logout",
+                                        style: TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      content: const Padding(
+                                        padding: EdgeInsets.only(top: 10),
+                                        child: Text(
+                                          "Are you sure you want to log out?",
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.pop(context); // close dialog
+                                          },
+                                          child: const Text("Cancel",
+                                            style: TextStyle(
+                                              fontSize: 17,
+                                              color: Colors.black,
+                                            ),
+                                          ),
+                                        ),
+                                        TextButton(
+                                          onPressed: () async {
+                                            Navigator.pop(context);
+                                            await FirebaseAuth.instance.signOut();
+                                          },
+                                          child: const Text(
+                                            "Logout",
+                                            style: TextStyle(
+                                              fontSize: 17,
+                                              color: Color(0xFF2F6B3D),
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: Colors.white.withOpacity(0.4)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.logout, color: Colors.white, size: 18),
+                                    const SizedBox(width: 6),
+                                    const Text(
+                                      "Logout",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -134,7 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
 
               const Text(
-                "Tất cả",
+                "All",
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
               ),
 

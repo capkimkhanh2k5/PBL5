@@ -22,7 +22,7 @@ import java.util.concurrent.ExecutionException;
 public class AlertService {
 
     private static final String COLLECTION_NAME = "alerts";
-    private static final String BINS_REALTIME_COLLECTION = "bins_realtime";
+    private static final String BINS_REALTIME_COLLECTION = "bin_realtime_status";
 
     private final Firestore firestore;
 
