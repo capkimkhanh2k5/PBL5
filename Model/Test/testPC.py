@@ -1,3 +1,4 @@
+import os
 import cv2
 import torch
 import torch.nn as nn
@@ -11,13 +12,38 @@ import time
 # 1. CẤU HÌNH CAMERA VÀ MODEL
 # ============================================================
 CAMERA_ID = 1  # Đã đổi sang ID 1 cho webcam ngoài
-MODEL_PATH = 'model.pth'
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "Train", "outputs", "best_model.pth"))
+
+CLASS_ALIASES = {
+    "battery": "Battery",
+    "biological": "Biological",
+    "general_waste": "General_Waste",
+    "trash": "General_Waste",
+    "glass": "Glass",
+    "brown-glass": "Glass",
+    "green-glass": "Glass",
+    "white-glass": "Glass",
+    "metal": "Metal",
+    "paper_cardboard": "Paper_Cardboard",
+    "paper-cardboard": "Paper_Cardboard",
+    "paper": "Paper_Cardboard",
+    "cardboard": "Paper_Cardboard",
+    "plastic": "Plastic",
+    "textiles": "General_Waste",
+    "clothes": "General_Waste",
+    "shoes": "General_Waste",
+}
+
+
+def normalize_class_name(class_name: str) -> str:
+    key = str(class_name).strip().lower().replace(" ", "_")
+    return CLASS_ALIASES.get(key, class_name)
 
 BIN_GROUPS = {
-    "ORGANIC": ["biological"],
-    "RECYCLABLE": ["plastic", "metal", "paper", "cardboard", "brown-glass", "green-glass", "white-glass", "glass"],
-    "TEXTILE": ["clothes", "shoes"],
-    "Other": ["battery", "trash"]
+    "ORGANIC": ["Biological"],
+    "RECYCLABLE": ["Plastic", "Metal", "Paper_Cardboard", "Glass"],
+    "Other": ["Battery", "General_Waste"]
 }
 
 # Định nghĩa lại Model (phải khớp với lúc train)
@@ -26,11 +52,11 @@ class WasteDetector(nn.Module):
         super().__init__()
         base = mobilenet_v3_large(weights=None)
         self.features = base.features
-        self.avgpool = base.avgpool
+        self.gem_pool = GeM(p=3)
         in_features = base.classifier[0].in_features
         self.classifier = nn.Sequential(
-            nn.Linear(in_features, 512), nn.Hardswish(inplace=True), nn.Dropout(0.3),
-            nn.Linear(512, 256), nn.Hardswish(inplace=True), nn.Dropout(0.2),
+            nn.Linear(in_features, 512), nn.BatchNorm1d(512), nn.Hardswish(inplace=True), nn.Dropout(0.4),
+            nn.Linear(512, 256), nn.BatchNorm1d(256), nn.Hardswish(inplace=True), nn.Dropout(0.2),
             nn.Linear(256, num_classes)
         )
         self.objectness = nn.Sequential(
@@ -38,8 +64,21 @@ class WasteDetector(nn.Module):
         )
 
     def forward(self, x):
-        feat = torch.flatten(self.avgpool(self.features(x)), 1)
+        feat = self.features(x)
+        feat = self.gem_pool(feat).flatten(1)
         return self.classifier(feat), self.objectness(feat)
+
+
+class GeM(nn.Module):
+    def __init__(self, p=3.0, eps=1e-6):
+        super().__init__()
+        self.p = nn.Parameter(torch.ones(1) * p)
+        self.eps = eps
+
+    def forward(self, x):
+        return torch.nn.functional.adaptive_avg_pool2d(
+            x.clamp(min=self.eps).pow(self.p), (1, 1)
+        ).pow(1.0 / self.p)
 
 # Load Model và Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -116,7 +155,7 @@ try:
                     logits, _ = model(tensor)
                     probs = torch.softmax(logits, dim=1)[0]
                     conf, idx = probs.max(0)
-                    top_class = classes[idx.item()]
+                    top_class = normalize_class_name(classes[idx.item()])
                 
                 history.append(top_class if conf > 0.3 else "uncertain")
                 

@@ -15,28 +15,51 @@ import io
 from concurrent.futures import ThreadPoolExecutor
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(SCRIPT_DIR, "trainModel/model.pth")
+MODEL_PATH = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "Train", "outputs", "best_model.pth"))
 
 CLASS_NAMES = []
 IMG_SIZE = 224          # ← Giảm từ 720 → 224 cho realtime inference
 REALTIME_IMG_SIZE = 224
 
-# Waste category mapping
-WASTE_CATEGORIES = {
-    'battery':    {'category': 'Hazardous',      'icon': 'alert-triangle', 'color': '#FF003C', 'bg': 'rgba(255,0,60,0.15)',   'border': 'rgba(255,0,60,0.4)'},
-    'biological': {'category': 'Organic',         'icon': 'leaf',           'color': '#0AFF00', 'bg': 'rgba(10,255,0,0.15)',   'border': 'rgba(10,255,0,0.4)'},
-    'cardboard':  {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
-    'clothes':    {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
-    'glass':      {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
-    'metal':      {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
-    'paper':      {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
-    'plastic':    {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
-    'shoes':      {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
-    'trash':      {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
+CLASS_ALIASES = {
+    'battery': 'Battery',
+    'biological': 'Biological',
+    'general_waste': 'General_Waste',
+    'trash': 'General_Waste',
+    'glass': 'Glass',
+    'brown-glass': 'Glass',
+    'white-glass': 'Glass',
+    'green-glass': 'Glass',
+    'metal': 'Metal',
+    'paper_cardboard': 'Paper_Cardboard',
+    'paper-cardboard': 'Paper_Cardboard',
+    'paper': 'Paper_Cardboard',
+    'cardboard': 'Paper_Cardboard',
+    'plastic': 'Plastic',
+    'textiles': 'General_Waste',
+    'clothes': 'General_Waste',
+    'shoes': 'General_Waste',
 }
 
+# Waste category mapping
+WASTE_CATEGORIES = {
+    'Battery':        {'category': 'Hazardous',      'icon': 'alert-triangle', 'color': '#FF003C', 'bg': 'rgba(255,0,60,0.15)',   'border': 'rgba(255,0,60,0.4)'},
+    'Biological':     {'category': 'Organic',         'icon': 'leaf',           'color': '#0AFF00', 'bg': 'rgba(10,255,0,0.15)',   'border': 'rgba(10,255,0,0.4)'},
+    'General_Waste':  {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
+    'Glass':          {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
+    'Metal':          {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
+    'Paper_Cardboard': {'category': 'Recyclable',     'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
+    'Plastic':        {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
+}
+
+
+def normalize_class_name(class_name):
+    key = str(class_name).strip().lower().replace(' ', '_')
+    return CLASS_ALIASES.get(key, class_name)
+
 def get_waste_category(class_name):
-    return WASTE_CATEGORIES.get(class_name, {
+    normalized_name = normalize_class_name(class_name)
+    return WASTE_CATEGORIES.get(normalized_name, {
         'category': 'Unknown', 'icon': 'help-circle',
         'color': '#64748B', 'bg': 'rgba(100,116,139,0.15)', 'border': 'rgba(100,116,139,0.4)'
     })
@@ -51,17 +74,19 @@ model_lock  = threading.Lock()
 class WasteDetectorModel(nn.Module):
     """MobileNetV3-based waste classifier with objectness detection"""
 
-    def __init__(self, num_classes=10):
+    def __init__(self, num_classes=7):
         super().__init__()
         backbone = models.mobilenet_v3_large(weights=None)
         self.features = backbone.features
-        self.avgpool  = backbone.avgpool
+        self.gem_pool = GeM(p=3)
 
         self.classifier = nn.Sequential(
             nn.Linear(960, 512),
+            nn.BatchNorm1d(512),
             nn.Hardswish(),
-            nn.Dropout(p=0.3),
+            nn.Dropout(p=0.4),
             nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
             nn.Hardswish(),
             nn.Dropout(p=0.2),
             nn.Linear(256, num_classes)
@@ -76,11 +101,23 @@ class WasteDetectorModel(nn.Module):
 
     def forward(self, x):
         features = self.features(x)
-        pooled   = self.avgpool(features)
-        pooled   = pooled.flatten(1)
+        pooled   = self.gem_pool(features).flatten(1)
         class_logits = self.classifier(pooled)
         obj_score    = self.objectness(pooled)
         return class_logits, obj_score, features
+
+
+class GeM(nn.Module):
+    """Generalized Mean Pooling."""
+    def __init__(self, p=3.0, eps=1e-6):
+        super().__init__()
+        self.p = nn.Parameter(torch.ones(1) * p)
+        self.eps = eps
+
+    def forward(self, x):
+        return torch.nn.functional.adaptive_avg_pool2d(
+            x.clamp(min=self.eps).pow(self.p), (1, 1)
+        ).pow(1.0 / self.p)
 
 
 def load_model(model_path):
@@ -90,9 +127,9 @@ def load_model(model_path):
     print(f"  Loading model from: {model_path}")
     checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
 
-    CLASS_NAMES = checkpoint.get('classes',
-        ['battery', 'biological', 'cardboard', 'clothes', 'glass',
-         'metal', 'paper', 'plastic', 'shoes', 'trash'])
+    raw_class_names = checkpoint.get('classes',
+        ['Battery', 'Biological', 'General_Waste', 'Glass', 'Metal', 'Paper_Cardboard', 'Plastic'])
+    CLASS_NAMES = [normalize_class_name(name) for name in raw_class_names]
     IMG_SIZE          = checkpoint.get('img_size', 720)
     REALTIME_IMG_SIZE = 224   # Cố định 224 cho realtime
 
@@ -435,13 +472,13 @@ def classify_frame(model, pil_img, skip_gradcam=False, mog2_bbox=None):
 
     probabilities   = torch.softmax(class_logits, dim=1)
     confidence, predicted_idx = torch.max(probabilities, dim=1)
-    predicted_class = CLASS_NAMES[predicted_idx.item()]
+    predicted_class = normalize_class_name(CLASS_NAMES[predicted_idx.item()])
     confidence_val  = confidence.item()
     obj_score       = torch.sigmoid(obj_score_raw).item()
 
     top5_probs, top5_idx = torch.topk(probabilities, min(5, len(CLASS_NAMES)), dim=1)
-    top5 = [{'class': CLASS_NAMES[top5_idx[0][i].item()],
-              'confidence': round(top5_probs[0][i].item() * 100, 1)}
+    top5 = [{'class': normalize_class_name(CLASS_NAMES[top5_idx[0][i].item()]),
+             'confidence': round(top5_probs[0][i].item() * 100, 1)}
             for i in range(top5_probs.shape[1])]
 
     bbox = mog2_bbox

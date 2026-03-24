@@ -18,11 +18,31 @@ MODEL_DIR = os.path.dirname(SCRIPT_DIR)  # Parent: Model/
 
 # Configuration
 TEST_DIR = os.path.join(SCRIPT_DIR, "TestImage")
-MODEL_PATH = os.path.join(MODEL_DIR, "outputs/best_model.pth")
+MODEL_PATH = os.path.join(MODEL_DIR, "Train", "outputs", "best_model.pth")
 
 # Will be loaded from checkpoint
 CLASS_NAMES = []
 IMG_SIZE = 720
+
+CLASS_ALIASES = {
+    'battery': 'Battery',
+    'biological': 'Biological',
+    'general_waste': 'General_Waste',
+    'trash': 'General_Waste',
+    'glass': 'Glass',
+    'brown-glass': 'Glass',
+    'white-glass': 'Glass',
+    'green-glass': 'Glass',
+    'metal': 'Metal',
+    'paper_cardboard': 'Paper_Cardboard',
+    'paper-cardboard': 'Paper_Cardboard',
+    'paper': 'Paper_Cardboard',
+    'cardboard': 'Paper_Cardboard',
+    'plastic': 'Plastic',
+    'textiles': 'General_Waste',
+    'clothes': 'General_Waste',
+    'shoes': 'General_Waste',
+}
 
 # Waste category mapping: class -> category
 WASTE_CATEGORIES = {
@@ -31,14 +51,19 @@ WASTE_CATEGORIES = {
     'General_Waste': {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
     'Glass':         {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
     'Metal':         {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
-    'Paper':         {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
+    'Paper_Cardboard': {'category': 'Recyclable',    'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
     'Plastic':       {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
-    'Textiles':      {'category': 'Non-Recyclable',  'icon': 'shirt',          'color': '#F59E0B', 'bg': 'rgba(245,158,11,0.15)', 'border': 'rgba(245,158,11,0.4)'},
 }
+
+
+def normalize_class_name(class_name):
+    key = str(class_name).strip().lower().replace(' ', '_')
+    return CLASS_ALIASES.get(key, class_name)
 
 def get_waste_category(class_name):
     """Get waste category info for a class"""
-    return WASTE_CATEGORIES.get(class_name, {'category': 'Unknown', 'icon': 'help-circle', 'color': '#64748B', 'bg': 'rgba(100,116,139,0.15)', 'border': 'rgba(100,116,139,0.4)'})
+    normalized_name = normalize_class_name(class_name)
+    return WASTE_CATEGORIES.get(normalized_name, {'category': 'Unknown', 'icon': 'help-circle', 'color': '#64748B', 'bg': 'rgba(100,116,139,0.15)', 'border': 'rgba(100,116,139,0.4)'})
 
 app = Flask(__name__)
 
@@ -56,7 +81,7 @@ class GeM(nn.Module):
 class WasteDetectorModel(nn.Module):
     """MobileNetV3-based waste classifier with GeM pooling and objectness detection"""
     
-    def __init__(self, num_classes=8):
+    def __init__(self, num_classes=7):
         super().__init__()
         backbone = models.mobilenet_v3_large(weights=None)
         
@@ -101,9 +126,9 @@ def load_model(model_path):
     print(f"📦 Loading model from: {model_path}")
     checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
     
-    CLASS_NAMES = checkpoint.get('classes', 
-        ['battery', 'biological', 'cardboard', 'clothes', 'glass', 
-         'metal', 'paper', 'plastic', 'shoes', 'trash'])
+    raw_class_names = checkpoint.get('classes',
+        ['Battery', 'Biological', 'General_Waste', 'Glass', 'Metal', 'Paper_Cardboard', 'Plastic'])
+    CLASS_NAMES = [normalize_class_name(name) for name in raw_class_names]
     IMG_SIZE = checkpoint.get('img_size', 720)
     
     num_classes = len(CLASS_NAMES)
@@ -301,7 +326,7 @@ def classify_images(model):
             # Get prediction
             probabilities = torch.softmax(class_logits, dim=1)
             confidence, predicted_idx = torch.max(probabilities, dim=1)
-            predicted_class = CLASS_NAMES[predicted_idx.item()]
+            predicted_class = normalize_class_name(CLASS_NAMES[predicted_idx.item()])
             confidence_val = confidence.item()
             
             # Objectness score (sigmoid for probability)
@@ -390,25 +415,27 @@ def classify_images(model):
 
 
 def get_actual_class(filename):
-    """Extract actual class from filename — mapping old names to new 8 classes"""
+    """Extract actual class from filename and normalize to 7 dataset classes"""
     filename_lower = filename.lower()
     
     # Mapping tên cũ trong filename → class mới
     OLD_TO_NEW = {
         'battery': 'Battery',
         'biological': 'Biological',
-        'cardboard': 'Paper',
-        'clothes': 'Textiles',
-        'shoes': 'Textiles',
+        'cardboard': 'Paper_Cardboard',
+        'paper': 'Paper_Cardboard',
+        'paper_cardboard': 'Paper_Cardboard',
+        'paper-cardboard': 'Paper_Cardboard',
+        'clothes': 'General_Waste',
+        'shoes': 'General_Waste',
         'trash': 'General_Waste',
         'glass': 'Glass',
         'brown-glass': 'Glass',
         'white-glass': 'Glass',
         'green-glass': 'Glass',
         'metal': 'Metal',
-        'paper': 'Paper',
         'plastic': 'Plastic',
-        'textiles': 'Textiles',
+        'textiles': 'General_Waste',
         'general_waste': 'General_Waste',
     }
     
@@ -771,7 +798,7 @@ if __name__ == "__main__":
             exit(1)
     else:
         print(f"❌ Critical Error: Model file missing at {MODEL_PATH}")
-        print("   Please ensure 'model.pth' is in the trainModel directory.")
+        print("   Please ensure 'best_model.pth' exists in Model/Train/outputs.")
         exit(1)
     
     # Check test directory
