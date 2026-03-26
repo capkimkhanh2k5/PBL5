@@ -8,6 +8,9 @@ services:
       - "${BACKEND_PORT:-8080}:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=docker
+      # Timezone for scheduler/date logic
+      - TZ=${TZ:-Asia/Ho_Chi_Minh}
+      - JAVA_OPTS=${JAVA_OPTS:--Duser.timezone=Asia/Ho_Chi_Minh}
       # Firebase (resolved by Spring relaxed binding)
       - FIREBASE_SERVICE_ACCOUNT=${FIREBASE_SERVICE_ACCOUNT:-file:/app/config/serviceAccountKey.json}
       - FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET:-pbl5-f21e6.firebasestorage.app}

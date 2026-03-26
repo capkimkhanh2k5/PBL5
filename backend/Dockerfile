@@ -18,8 +18,11 @@ RUN mvn package -DskipTests -B
 FROM eclipse-temurin:21-jre-jammy
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends curl tzdata && \
     rm -rf /var/lib/apt/lists/*
+
+ENV TZ=Asia/Ho_Chi_Minh
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Security: non-root user
 RUN groupadd -g 1001 appgroup && \
