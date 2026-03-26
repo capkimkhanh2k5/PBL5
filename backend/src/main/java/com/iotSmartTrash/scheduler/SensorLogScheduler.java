@@ -93,15 +93,9 @@ public class SensorLogScheduler {
 
     private BinSensorLog computeStats(String binId, List<BinRawSensorLog> logs,
             BinPeriod period, String date) {
-        double sumTemp = 0, minTemp = Double.MAX_VALUE, maxTemp = Double.MIN_VALUE;
         long sumBattery = 0, sumOrg = 0, sumRec = 0, sumNon = 0, sumHaz = 0;
 
         for (BinRawSensorLog sensorLog : logs) {
-            double temp = sensorLog.getTemperature() != null ? sensorLog.getTemperature() : 0.0;
-            sumTemp += temp;
-            if (temp < minTemp) minTemp = temp;
-            if (temp > maxTemp) maxTemp = temp;
-
             sumBattery += sensorLog.getBatteryLevel() != null ? sensorLog.getBatteryLevel() : 0;
             sumOrg += sensorLog.getFillOrganic() != null ? sensorLog.getFillOrganic() : 0;
             sumRec += sensorLog.getFillRecycle() != null ? sensorLog.getFillRecycle() : 0;
@@ -114,9 +108,6 @@ public class SensorLogScheduler {
                 .binId(binId)
                 .period(period)
                 .date(date)
-                .avgTemperature(Math.round((sumTemp / n) * 10.0) / 10.0)
-                .minTemperature(minTemp)
-                .maxTemperature(maxTemp)
                 .avgBattery((int) (sumBattery / n))
                 .avgFillOrganic((int) (sumOrg / n))
                 .avgFillRecycle((int) (sumRec / n))

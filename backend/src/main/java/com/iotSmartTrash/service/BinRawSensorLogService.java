@@ -1,7 +1,6 @@
 package com.iotSmartTrash.service;
 
 import com.google.cloud.firestore.*;
-import com.iotSmartTrash.dto.RawLogMigrationResultDTO;
 import com.iotSmartTrash.exception.ServiceException;
 import com.iotSmartTrash.model.BinRawSensorLog;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +40,6 @@ public class BinRawSensorLogService {
 
             // Write canonical snake_case fields for stable querying/indexing.
                 Map<String, Object> payload = new HashMap<>();
-                payload.put("temperature", log.getTemperature());
                 payload.put("battery_level", safeInt(log.getBatteryLevel()));
                 payload.put("fill_organic", safeInt(log.getFillOrganic()));
                 payload.put("fill_recycle", safeInt(log.getFillRecycle()));
@@ -163,88 +161,6 @@ public class BinRawSensorLogService {
         }
     }
 
-    /**
-     * Normalize raw logs schema to snake_case keys and ensure recorded_at exists.
-     */
-    public RawLogMigrationResultDTO migrateRawLogSchema() {
-        try {
-            int binsScanned = 0;
-            int docsScanned = 0;
-            int docsUpdated = 0;
-            int docsTimestampBackfilled = 0;
-
-            for (DocumentReference binRef : firestore.collection(PARENT_COLLECTION).listDocuments()) {
-                binsScanned++;
-                CollectionReference logsRef = binRef.collection(SUB_COLLECTION);
-                List<QueryDocumentSnapshot> docs = logsRef.get().get().getDocuments();
-
-                WriteBatch batch = firestore.batch();
-                int batchCount = 0;
-
-                for (QueryDocumentSnapshot doc : docs) {
-                    docsScanned++;
-                    Map<String, Object> data = doc.getData();
-                    Map<String, Object> updates = new HashMap<>();
-                    boolean shouldUpdate = false;
-
-                    Long recordedAt = extractLong(data, "recorded_at", "recordedAt");
-                    if (recordedAt == null || recordedAt <= 0L) {
-                        recordedAt = doc.getUpdateTime().toDate().getTime();
-                        docsTimestampBackfilled++;
-                        shouldUpdate = true;
-                    }
-                    if (!data.containsKey("recorded_at") || !Long.valueOf(recordedAt).equals(data.get("recorded_at"))) {
-                        updates.put("recorded_at", recordedAt);
-                        shouldUpdate = true;
-                    }
-
-                    shouldUpdate |= migrateNumberField(data, updates, "battery_level", "batteryLevel");
-                    shouldUpdate |= migrateNumberField(data, updates, "fill_organic", "fillOrganic");
-                    shouldUpdate |= migrateNumberField(data, updates, "fill_recycle", "fillRecycle");
-                    shouldUpdate |= migrateNumberField(data, updates, "fill_non_recycle", "fillNonRecycle");
-                    shouldUpdate |= migrateNumberField(data, updates, "fill_hazardous", "fillHazardous");
-
-                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "recordedAt");
-                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "batteryLevel");
-                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "fillOrganic");
-                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "fillRecycle");
-                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "fillNonRecycle");
-                    shouldUpdate |= deleteLegacyFieldIfPresent(data, updates, "fillHazardous");
-
-                    if (!shouldUpdate) {
-                        continue;
-                    }
-
-                    batch.update(doc.getReference(), updates);
-                    batchCount++;
-                    docsUpdated++;
-
-                    if (batchCount >= 450) {
-                        batch.commit().get();
-                        batch = firestore.batch();
-                        batchCount = 0;
-                    }
-                }
-
-                if (batchCount > 0) {
-                    batch.commit().get();
-                }
-            }
-
-            return RawLogMigrationResultDTO.builder()
-                    .binsScanned(binsScanned)
-                    .docsScanned(docsScanned)
-                    .docsUpdated(docsUpdated)
-                    .docsTimestampBackfilled(docsTimestampBackfilled)
-                    .build();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ServiceException("Cannot migrate raw logs schema: operation interrupted", e);
-        } catch (ExecutionException e) {
-            throw new ServiceException("Cannot migrate raw logs schema", e.getCause());
-        }
-    }
-
     private List<QueryDocumentSnapshot> queryByRecordedField(
             String binId,
             Query.Direction direction,
@@ -268,7 +184,6 @@ public class BinRawSensorLogService {
     private BinRawSensorLog mapRawLog(QueryDocumentSnapshot doc) {
         return BinRawSensorLog.builder()
                 .id(doc.getId())
-                .temperature(getDouble(doc, "temperature"))
                 .batteryLevel(getInt(doc, "battery_level"))
                 .fillOrganic(getInt(doc, "fill_organic"))
                 .fillRecycle(getInt(doc, "fill_recycle"))
@@ -302,40 +217,5 @@ public class BinRawSensorLogService {
         return 0L;
     }
 
-    private Double getDouble(QueryDocumentSnapshot doc, String key) {
-        Double value = doc.getDouble(key);
-        return value != null ? value : 0.0;
-    }
-
-    private boolean migrateNumberField(Map<String, Object> data, Map<String, Object> updates, String newKey, String oldKey) {
-        if (data.containsKey(newKey)) {
-            return false;
-        }
-        Object oldVal = data.get(oldKey);
-        if (!(oldVal instanceof Number number)) {
-            return false;
-        }
-        updates.put(newKey, number.longValue());
-        return true;
-    }
-
-    private boolean deleteLegacyFieldIfPresent(Map<String, Object> data, Map<String, Object> updates, String field) {
-        if (!data.containsKey(field)) {
-            return false;
-        }
-        updates.put(field, FieldValue.delete());
-        return true;
-    }
-
-    private Long extractLong(Map<String, Object> data, String primary, String fallback) {
-        Object value = data.get(primary);
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        Object fallbackValue = data.get(fallback);
-        if (fallbackValue instanceof Number number) {
-            return number.longValue();
-        }
-        return null;
-    }
 }
+

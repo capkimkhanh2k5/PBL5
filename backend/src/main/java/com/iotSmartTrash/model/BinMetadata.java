@@ -7,6 +7,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/*
+    Model Meta Data của Bin
+    Lưu vị trí, địa chỉ, mô tả 
+*/
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
