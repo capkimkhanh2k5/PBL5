@@ -1,7 +1,9 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   // Stream theo dõi trạng thái đăng nhập
   Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -42,6 +44,26 @@ class AuthService {
     );
   }
 
+  // Đăng nhập bằng Google
+  Future<UserCredential> signInWithGoogle() async {
+    final googleUser = await _googleSignIn.signIn();
+
+    if (googleUser == null) {
+      throw FirebaseAuthException(
+        code: 'google-sign-in-cancelled',
+        message: 'Google sign in was cancelled by user.',
+      );
+    }
+
+    final googleAuth = await googleUser.authentication;
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+
+    return await _auth.signInWithCredential(credential);
+  }
+
   // Quên mật khẩu — gửi email reset
   Future<void> sendPasswordResetEmail({required String email}) async {
     await _auth.sendPasswordResetEmail(email: email);
@@ -49,6 +71,7 @@ class AuthService {
 
   // Đăng xuất
   Future<void> signOut() async {
+    await _googleSignIn.signOut();
     await _auth.signOut();
   }
 
@@ -73,6 +96,10 @@ class AuthService {
         return 'Too many attempts. Please try again later.';
       case 'network-request-failed':
         return 'Network error. Please check your internet connection.';
+      case 'google-sign-in-cancelled':
+        return 'Google sign in was cancelled.';
+      case 'account-exists-with-different-credential':
+        return 'This email is already linked to another sign-in method.';
       default:
         return 'An error occurred: ${e.message}';
     }

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'bin_detail_screen.dart';
 import 'ai_chat_screen.dart';
 import '../services/api_service.dart';
@@ -237,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         TextButton(
                                           onPressed: () async {
                                             Navigator.pop(context);
-                                            await FirebaseAuth.instance.signOut();
+                                            await _authService.signOut();
                                           },
                                           child: const Text(
                                             "Logout",
