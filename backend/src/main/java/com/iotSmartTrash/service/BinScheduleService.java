@@ -49,7 +49,8 @@ public class BinScheduleService {
                 double urgencyScore = calculateUrgencyScore(fillOrganic, fillRecycle, fillNonRecycle, fillHazardous);
                 int etaHours = estimatePickupInHours(urgencyScore, fillHazardous);
                 long sourceRecordedAt = extractRecordedAtMillis(doc, log);
-                long baseTime = sourceRecordedAt > 0 ? sourceRecordedAt : Instant.now().toEpochMilli();
+                long now = Instant.now().toEpochMilli();
+                long baseTime = sourceRecordedAt > 0 ? Math.max(sourceRecordedAt, now) : now;
                 long predictedPickupAt = baseTime + etaHours * 3600_000L;
 
                 BinPickupScheduleDTO item = BinPickupScheduleDTO.builder()

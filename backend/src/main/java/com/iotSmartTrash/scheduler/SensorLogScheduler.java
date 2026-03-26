@@ -11,7 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -32,7 +32,7 @@ public class SensorLogScheduler {
      */
     @Scheduled(cron = "0 0 0,6,12,18 * * *")
     public void aggregateSensorLogs() {
-        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        ZonedDateTime now = ZonedDateTime.now(ZoneId.systemDefault());
         BinPeriod period = BinPeriod.fromHour(now.getHour());
         String date = now.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
