@@ -14,8 +14,11 @@ import lombok.NoArgsConstructor;
 @Builder
 public class User {
     private String uid;
+
     private String username;
+
     private String email;
+    
     private UserRole role;
 
     @PropertyName("avatar_url")

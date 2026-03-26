@@ -1,13 +1,14 @@
 package com.iotSmartTrash.dto;
 
-import com.iotSmartTrash.model.BinRealtimeStatus;
+import com.iotSmartTrash.model.BinRawSensorLog;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * DTO phản hồi trạng thái realtime của thùng rác.
+ * DTO phản hồi trạng thái hiện tại của thùng rác.
+ * Build trực tiếp từ BinRawSensorLog mới nhất.
  */
 @Data
 @NoArgsConstructor
@@ -16,7 +17,6 @@ import lombok.NoArgsConstructor;
 public class BinRealtimeStatusResponseDTO {
     private String id;
     private String status;
-    private Double temperature;
     private Integer batteryLevel;
     private Integer fillOrganic;
     private Integer fillRecycle;
@@ -24,18 +24,36 @@ public class BinRealtimeStatusResponseDTO {
     private Integer fillHazardous;
     private Long lastUpdated;
 
-    public static BinRealtimeStatusResponseDTO fromModel(BinRealtimeStatus model) {
-        if (model == null) return null;
+    /**
+     * Tạo DTO từ raw sensor log mới nhất + tính status ONLINE/OFFLINE.
+     */
+    public static BinRealtimeStatusResponseDTO fromRawLog(String binId, BinRawSensorLog log, long offlineThresholdMs) {
+        if (log == null) {
+            return BinRealtimeStatusResponseDTO.builder()
+                    .id(binId)
+                    .status("UNKNOWN")
+                    .batteryLevel(0)
+                    .fillOrganic(0)
+                    .fillRecycle(0)
+                    .fillNonRecycle(0)
+                    .fillHazardous(0)
+                    .lastUpdated(0L)
+                    .build();
+        }
+
+        long lastUpdated = log.getRecordedAt() != null ? log.getRecordedAt() : 0L;
+        long ageMs = System.currentTimeMillis() - lastUpdated;
+        String status = (lastUpdated > 0 && ageMs <= offlineThresholdMs) ? "ONLINE" : "OFFLINE";
+
         return BinRealtimeStatusResponseDTO.builder()
-                .id(model.getId())
-                .status(model.getStatus())
-                .temperature(model.getTemperature())
-                .batteryLevel(model.getBatteryLevel())
-                .fillOrganic(model.getFillOrganic())
-                .fillRecycle(model.getFillRecycle())
-                .fillNonRecycle(model.getFillNonRecycle())
-                .fillHazardous(model.getFillHazardous())
-                .lastUpdated(model.getLastUpdated())
+                .id(binId)
+                .status(status)
+                .batteryLevel(log.getBatteryLevel())
+                .fillOrganic(log.getFillOrganic())
+                .fillRecycle(log.getFillRecycle())
+                .fillNonRecycle(log.getFillNonRecycle())
+                .fillHazardous(log.getFillHazardous())
+                .lastUpdated(lastUpdated)
                 .build();
     }
 }

@@ -12,7 +12,9 @@ import lombok.NoArgsConstructor;
 @Builder
 public class TrashCategory {
     private String id;
+
     private String name;
+    
     private String type;
 
     @PropertyName("icon_url")

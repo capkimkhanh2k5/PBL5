@@ -15,8 +15,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class RawSensorLogCreateDTO {
 
-    private Double temperature;
-
     @Min(value = 0, message = "Battery level >= 0")
     @Max(value = 100, message = "Battery level <= 100")
     private Integer batteryLevel;
@@ -38,7 +36,6 @@ public class RawSensorLogCreateDTO {
 
     public BinRawSensorLog toModel() {
         return BinRawSensorLog.builder()
-                .temperature(this.temperature)
                 .batteryLevel(this.batteryLevel)
                 .fillOrganic(this.fillOrganic)
                 .fillRecycle(this.fillRecycle)
