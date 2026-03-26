@@ -42,6 +42,11 @@ dependencies:
   # Secure storage
   flutter_secure_storage: ^9.2.4
 
+  # Local notifications for pickup reminders
+  flutter_local_notifications: ^17.2.2
+  timezone: ^0.9.4
+  flutter_timezone: ^3.0.1
+
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8

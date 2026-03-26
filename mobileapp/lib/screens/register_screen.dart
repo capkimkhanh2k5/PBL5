@@ -17,7 +17,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passCtrl = TextEditingController();
   final _authService = AuthService();
 
-  bool _rememberMe = false;
   bool _obscure = true;
   bool _isLoading = false;
 
@@ -236,34 +235,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 14),
 
-                  Row(
-                    children: [
-                      Checkbox(
-                        value: _rememberMe,
-                        onChanged: (v) => setState(() => _rememberMe = v ?? false),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        side: BorderSide(color: Colors.black.withOpacity(0.35)),
-                        activeColor: green,
-                      ),
-                      const Text('Remember Me', style: TextStyle(fontSize: 13)),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: () {},
-                        child: const Text(
-                          'Forgot Password?',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: green,
-                            fontWeight: FontWeight.w700,
-                          ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {},
+                      child: const Text(
+                        'Forgot Password?',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: green,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ],
+                    ),
                   ),
 
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
 
                   Center(
                     child: Text(

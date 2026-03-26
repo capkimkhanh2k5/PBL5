@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import 'register_screen.dart';
@@ -13,13 +14,26 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static const _rememberKey = 'remember_me';
+  static const _rememberedEmailKey = 'remembered_email';
+
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _authService = AuthService();
+  final _storage = const FlutterSecureStorage();
 
   bool _rememberMe = false;
   bool _obscure = true;
-  bool _isLoading = false;
+  bool _isEmailLoading = false;
+  bool _isGoogleLoading = false;
+
+  bool get _isAnyLoading => _isEmailLoading || _isGoogleLoading;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRememberedLogin();
+  }
 
   @override
   void dispose() {
@@ -37,10 +51,11 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() => _isEmailLoading = true);
 
     try {
       await _authService.signInWithEmail(email: email, password: password);
+      await _persistRememberState(email);
 
       // Sync user lên backend
       try {
@@ -51,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       if (!mounted) return;
-      // AuthGate trong main sẽ tự chuyển sang MainShell
+      _completeLoginSuccess();
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       _showSnackBar(AuthService.getErrorMessage(e));
@@ -59,15 +74,17 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       _showSnackBar('An error occurred. Please try again.');
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isEmailLoading = false);
     }
   }
 
   Future<void> _handleGoogleLogin() async {
-    setState(() => _isLoading = true);
+    setState(() => _isGoogleLoading = true);
 
     try {
-      await _authService.signInWithGoogle();
+      final credential = await _authService.signInWithGoogle();
+      final signedEmail = credential.user?.email?.trim() ?? _emailCtrl.text.trim();
+      await _persistRememberState(signedEmail);
 
       try {
         final apiService = ApiService(authService: _authService);
@@ -77,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       if (!mounted) return;
-      // AuthGate trong main sẽ tự chuyển sang MainShell
+      _completeLoginSuccess();
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       _showSnackBar(AuthService.getErrorMessage(e));
@@ -85,8 +102,46 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       _showSnackBar('Could not sign in with Google. Please try again.');
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isGoogleLoading = false);
     }
+  }
+
+  Future<void> _loadRememberedLogin() async {
+    final remembered = await _storage.read(key: _rememberKey);
+    final rememberedEmail = await _storage.read(key: _rememberedEmailKey);
+
+    if (!mounted) return;
+    setState(() {
+      _rememberMe = remembered == 'true';
+      if (_rememberMe && rememberedEmail != null && rememberedEmail.isNotEmpty) {
+        _emailCtrl.text = rememberedEmail;
+      }
+    });
+  }
+
+  Future<void> _persistRememberState(String email) async {
+    if (_rememberMe) {
+      await _storage.write(key: _rememberKey, value: 'true');
+      await _storage.write(key: _rememberedEmailKey, value: email);
+      return;
+    }
+
+    await _storage.write(key: _rememberKey, value: 'false');
+    await _storage.delete(key: _rememberedEmailKey);
+  }
+
+  Future<void> _toggleRemember(bool value) async {
+    setState(() => _rememberMe = value);
+
+    if (!value) {
+      await _storage.write(key: _rememberKey, value: 'false');
+      await _storage.delete(key: _rememberedEmailKey);
+    }
+  }
+
+  void _completeLoginSuccess() {
+    // Nếu LoginScreen đang là route phụ, quay về route gốc để AuthGate hiển thị MainShell.
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _showSnackBar(String message) {
@@ -193,8 +248,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         children: [
                           Checkbox(
                             value: _rememberMe,
-                            onChanged: (v) =>
-                                setState(() => _rememberMe = v ?? false),
+                            onChanged: (v) => _toggleRemember(v ?? false),
                             activeColor: const Color(0xFF2F6B3D),
                           ),
                           const Text('Remember me',
@@ -225,7 +279,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: double.infinity,
                         height: 54,
                         child: ElevatedButton(
-                          onPressed: _isLoading ? null : _handleLogin,
+                          onPressed: _isAnyLoading ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2F6B3D),
                             foregroundColor: Colors.white,
@@ -234,7 +288,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               borderRadius: BorderRadius.circular(28),
                             ),
                           ),
-                          child: _isLoading
+                            child: _isEmailLoading
                               ? const SizedBox(
                                   width: 24,
                                   height: 24,
@@ -284,7 +338,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: double.infinity,
                         height: 52,
                         child: OutlinedButton(
-                          onPressed: _isLoading ? null : _handleGoogleLogin,
+                          onPressed: _isAnyLoading ? null : _handleGoogleLogin,
                           style: OutlinedButton.styleFrom(
                             backgroundColor: Colors.white,
                             foregroundColor: const Color(0xFF202124),
@@ -295,7 +349,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               borderRadius: BorderRadius.circular(28),
                             ),
                           ),
-                          child: _isLoading
+                            child: _isGoogleLoading
                               ? const SizedBox(
                                   width: 24,
                                   height: 24,
