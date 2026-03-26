@@ -73,7 +73,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  void _showSuccessAndNavigate() {
+  Future<void> _handleGoogleRegister() async {
+    setState(() => _isLoading = true);
+
+    try {
+      await _authService.signInWithGoogle();
+
+      try {
+        final apiService = ApiService(authService: _authService);
+        await apiService.syncUser();
+      } catch (_) {
+        // Backend sync thất bại không chặn đăng nhập Google
+      }
+
+      if (!mounted) return;
+      // AuthGate trong main sẽ tự chuyển sang MainShell
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      _showSnackBar(AuthService.getErrorMessage(e));
+    } catch (_) {
+      if (!mounted) return;
+      _showSnackBar('Could not sign in with Google. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _showSuccessAndNavigate() async {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Registration successful! Please log in.'),
@@ -83,7 +109,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
     );
     // Đăng xuất để user phải login lại (xác nhận đăng nhập)
-    _authService.signOut();
+    await _authService.signOut();
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -260,7 +287,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(width: 14),
                       _SocialIconButton(
-                        onTap: () {},
+                        onTap: _isLoading ? () {} : _handleGoogleRegister,
                         icon: Icons.g_mobiledata_rounded, // giả lập Google icon
                       ),
                       const SizedBox(width: 14),
