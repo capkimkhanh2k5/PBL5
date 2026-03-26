@@ -1,4 +1,4 @@
-package com.example.pbl5_flutter
+package com.example.pbl5Flutter
 
 import io.flutter.embedding.android.FlutterActivity
 
