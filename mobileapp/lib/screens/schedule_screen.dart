@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -10,11 +12,17 @@ class ScheduleScreen extends StatefulWidget {
 }
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
+  static const _reminderEnabledKey = 'pickup_reminder_enabled';
+  static const _reminderAtKey = 'pickup_reminder_at';
+  static const _reminderLeadKey = 'pickup_reminder_lead_minutes';
+
   final _authService = AuthService();
+  final _storage = const FlutterSecureStorage();
   late final ApiService _api;
   bool _loading = true;
   bool _triggering = false;
   bool _reminderEnabled = false;
+  int _selectedReminderLeadMinutes = 60;
   String? _error;
   List<_PickupItem> _items = const [];
 
@@ -36,16 +44,19 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       final items = schedule.map((row) {
         final id = (row['binId'] ?? 'Unknown').toString();
         final avg = _toInt(row['avgFill']) ?? 0;
-        final predictedMs = _toInt(row['predictedPickupAt'])?.toInt() ?? 0;
-        final eta = predictedMs > 0
-            ? DateTime.fromMillisecondsSinceEpoch(predictedMs)
-            : DateTime.now().add(const Duration(days: 1));
+        final predictedMs = _parseEpochMillis(row['predictedPickupAt']);
+        final now = DateTime.now();
+        final rawEta = predictedMs > 0
+            ? _fromEpochMillisToLocal(predictedMs)
+            : now.add(const Duration(days: 1));
+        final eta = rawEta.isBefore(now) ? now.add(const Duration(minutes: 30)) : rawEta;
         final priority = (row['priority'] ?? 'LOW').toString();
         return _PickupItem(binId: id, avgFill: avg, eta: eta, priority: priority);
       }).toList();
 
       if (!mounted) return;
       setState(() => _items = items);
+      await _syncReminderStateWithSchedule(items);
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Failed to load schedule from backend.');
@@ -75,25 +86,229 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 
-  void _toggleReminder() {
+  DateTime _buildReminderTime(_PickupItem next, int leadMinutes) {
+    final beforePickup = next.eta.subtract(Duration(minutes: leadMinutes));
+    final minLead = DateTime.now().add(const Duration(seconds: 10));
+    return beforePickup.isAfter(minLead) ? beforePickup : minLead;
+  }
+
+  String _leadLabel(int minutes) {
+    switch (minutes) {
+      case 10:
+        return '10 minutes';
+      case 30:
+        return '30 minutes';
+      case 60:
+        return '1 hour';
+      case 1440:
+        return '1 day';
+      default:
+        return '$minutes minutes';
+    }
+  }
+
+  Future<int?> _pickReminderLeadMinutes() async {
+    int temp = _selectedReminderLeadMinutes;
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setLocalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Remind me before pickup',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    RadioListTile<int>(
+                      value: 10,
+                      groupValue: temp,
+                      onChanged: (v) => setLocalState(() => temp = v ?? 10),
+                      title: const Text('10 minutes'),
+                    ),
+                    RadioListTile<int>(
+                      value: 30,
+                      groupValue: temp,
+                      onChanged: (v) => setLocalState(() => temp = v ?? 30),
+                      title: const Text('30 minutes'),
+                    ),
+                    RadioListTile<int>(
+                      value: 60,
+                      groupValue: temp,
+                      onChanged: (v) => setLocalState(() => temp = v ?? 60),
+                      title: const Text('1 hour'),
+                    ),
+                    RadioListTile<int>(
+                      value: 1440,
+                      groupValue: temp,
+                      onChanged: (v) => setLocalState(() => temp = v ?? 1440),
+                      title: const Text('1 day'),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(ctx).pop(temp),
+                        child: const Text('Confirm'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    return picked;
+  }
+
+  Future<void> _syncReminderStateWithSchedule(List<_PickupItem> items) async {
+    final enabled = await _storage.read(key: _reminderEnabledKey) == 'true';
+    final reminderAtRaw = await _storage.read(key: _reminderAtKey);
+    final leadRaw = await _storage.read(key: _reminderLeadKey);
+    final reminderAtMs = int.tryParse(reminderAtRaw ?? '');
+    final leadMinutes = int.tryParse(leadRaw ?? '') ?? _selectedReminderLeadMinutes;
+
+    if (mounted && _selectedReminderLeadMinutes != leadMinutes) {
+      setState(() => _selectedReminderLeadMinutes = leadMinutes);
+    }
+
+    if (!enabled || reminderAtMs == null || items.isEmpty) {
+      if (!mounted) return;
+      if (_reminderEnabled) {
+        setState(() => _reminderEnabled = false);
+      }
+      return;
+    }
+
+    final expectedReminderAt =
+        _buildReminderTime(items.first, leadMinutes).millisecondsSinceEpoch;
+    final isSameSchedule = (reminderAtMs - expectedReminderAt).abs() < 60000;
+    final isFuture = _fromEpochMillisToLocal(reminderAtMs).isAfter(DateTime.now());
+    final stillEnabled = isSameSchedule && isFuture;
+
+    if (stillEnabled) {
+      if (!mounted) return;
+      setState(() => _reminderEnabled = true);
+      return;
+    }
+
+    final next = items.first;
+    final reminderTime = _buildReminderTime(next, leadMinutes);
+
+    try {
+      await NotificationService.instance.schedulePickupReminder(
+        scheduledAt: reminderTime,
+        title: 'Trash pickup reminder',
+        body: 'Bin ${next.binId} pickup at ${next.formatted}.',
+      );
+      await _storage.write(key: _reminderEnabledKey, value: 'true');
+      await _storage.write(
+        key: _reminderAtKey,
+        value: reminderTime.millisecondsSinceEpoch.toString(),
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _reminderEnabled = true;
+        _selectedReminderLeadMinutes = leadMinutes;
+      });
+    } catch (_) {
+      await NotificationService.instance.cancelPickupReminder();
+      await _storage.write(key: _reminderEnabledKey, value: 'false');
+      await _storage.delete(key: _reminderAtKey);
+      await _storage.delete(key: _reminderLeadKey);
+      if (!mounted) return;
+      setState(() => _reminderEnabled = false);
+    }
+  }
+
+  Future<void> _toggleReminder() async {
     if (_items.isEmpty) return;
     final next = _items.first;
-    setState(() => _reminderEnabled = !_reminderEnabled);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _reminderEnabled
-              ? 'Reminder enabled for ${next.binId} at ${next.formatted}'
-              : 'Reminder disabled',
+
+    if (_reminderEnabled) {
+      await NotificationService.instance.cancelPickupReminder();
+      await _storage.write(key: _reminderEnabledKey, value: 'false');
+      await _storage.delete(key: _reminderAtKey);
+      await _storage.delete(key: _reminderLeadKey);
+      if (!mounted) return;
+      setState(() => _reminderEnabled = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reminder disabled.')),
+      );
+      return;
+    }
+
+    try {
+      final pickedLead = await _pickReminderLeadMinutes();
+      if (pickedLead == null) return;
+
+      final reminderTime = _buildReminderTime(next, pickedLead);
+      await NotificationService.instance.schedulePickupReminder(
+        scheduledAt: reminderTime,
+        title: 'Trash pickup reminder',
+        body: 'Bin ${next.binId} pickup at ${next.formatted}.',
+      );
+      await _storage.write(key: _reminderEnabledKey, value: 'true');
+      await _storage.write(
+        key: _reminderAtKey,
+        value: reminderTime.millisecondsSinceEpoch.toString(),
+      );
+      await _storage.write(
+        key: _reminderLeadKey,
+        value: pickedLead.toString(),
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _reminderEnabled = true;
+        _selectedReminderLeadMinutes = pickedLead;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Reminder set ${_leadLabel(pickedLead)} before pickup for ${next.binId}.',
+          ),
         ),
-      ),
-    );
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot enable reminder right now. Please try again.'),
+        ),
+      );
+    }
   }
 
   static int? _toInt(dynamic value) {
     if (value is int) return value;
     if (value is num) return value.toInt();
     return int.tryParse(value?.toString() ?? '');
+  }
+
+  static int _parseEpochMillis(dynamic value) {
+    final parsed = _toInt(value) ?? 0;
+    // Backward-compatible: accept both second and millisecond epoch values.
+    if (parsed > 0 && parsed < 1000000000000) {
+      return parsed * 1000;
+    }
+    return parsed;
+  }
+
+  static DateTime _fromEpochMillisToLocal(int epochMillis) {
+    return DateTime.fromMillisecondsSinceEpoch(epochMillis, isUtc: true)
+        .toLocal();
   }
 
   static const bgColor = Color(0xFFEAF6EE);
@@ -219,7 +434,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    "Auto-scheduled: Every Monday & Thursday",
+                    "AI-estimated from latest sensor data",
                     style: TextStyle(fontSize: 13),
                   ),
                   const SizedBox(height: 18),
@@ -243,9 +458,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                           size: 18,
                           color: Colors.white,
                         ),
-                        onPressed: _items.isEmpty ? null : _toggleReminder,
+                        onPressed: _items.isEmpty ? null : () => _toggleReminder(),
                         label: Text(
-                          _reminderEnabled ? "Reminder On" : "Remind Me",
+                          _reminderEnabled
+                              ? 'Reminder On (${_leadLabel(_selectedReminderLeadMinutes)})'
+                              : 'Remind Me',
                           style: const TextStyle(
                             fontWeight: FontWeight.w600,
                             color: Colors.white,
@@ -338,8 +555,9 @@ class _PickupItem {
   _PickupItem({required this.binId, required this.avgFill, required this.eta, required this.priority});
 
   int get daysLeft {
-    final diff = eta.difference(DateTime.now()).inDays;
-    return diff < 0 ? 0 : diff;
+    final diffMinutes = eta.difference(DateTime.now()).inMinutes;
+    if (diffMinutes <= 0) return 0;
+    return (diffMinutes / (24 * 60)).ceil();
   }
 
   String get formatted {
