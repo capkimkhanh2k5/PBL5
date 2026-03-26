@@ -18,8 +18,6 @@ import lombok.NoArgsConstructor;
 public class BinRawSensorLog {
     private String id; // auto-generated doc ID
 
-    private Double temperature;
-
     @PropertyName("battery_level")
     private Integer batteryLevel;
 

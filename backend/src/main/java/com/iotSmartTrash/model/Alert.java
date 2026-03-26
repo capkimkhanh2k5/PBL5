@@ -26,7 +26,9 @@ public class Alert {
     private AlertType alertType;
 
     private AlertSeverity severity;
+
     private String message;
+    
     private AlertStatus status;
 
     @PropertyName("resolved_by")

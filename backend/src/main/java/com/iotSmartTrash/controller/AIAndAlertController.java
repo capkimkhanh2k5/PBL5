@@ -10,14 +10,11 @@ import com.iotSmartTrash.model.ClassificationLog;
 import com.iotSmartTrash.service.AlertService;
 import com.iotSmartTrash.service.BinScheduleService;
 import com.iotSmartTrash.service.ClassificationLogService;
-import com.iotSmartTrash.service.FirebaseStorageService;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.validation.Valid;
 import java.util.List;
@@ -32,23 +29,14 @@ public class AIAndAlertController {
     private final ClassificationLogService aiLogger;
     private final AlertService alertService;
     private final BinScheduleService binScheduleService;
-    private final FirebaseStorageService storageService;
-    private final ObjectMapper objectMapper;
 
-    /** Nhận log AI và hình ảnh từ Raspberry Pi */
-    @PostMapping(value = "/classification-logs", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    /** Nhận binId, URL ảnh và kết quả phân loại từ AI */
+    @PostMapping(value = "/classification-logs", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> saveAILog(
-            @RequestPart("file") MultipartFile file,
-            @RequestPart("log") String logJson) {
-        try {
-            ClassificationLogCreateDTO dto = objectMapper.readValue(logJson, ClassificationLogCreateDTO.class);
-            ClassificationLog log = dto.toModel();
-            log.setImageUrl(storageService.uploadImage(file));
-            String updateTime = aiLogger.saveLog(log);
-            return ResponseEntity.ok("AI Data received and saved at " + updateTime);
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body("Error processing classification log: " + e.getMessage());
-        }
+            @Valid @RequestBody ClassificationLogCreateDTO dto) {
+        ClassificationLog log = dto.toModel();
+        String updateTime = aiLogger.saveLog(log);
+        return ResponseEntity.ok("AI data received and saved at " + updateTime);
     }
 
     /** Lấy toàn bộ cảnh báo cho Admin Portal */

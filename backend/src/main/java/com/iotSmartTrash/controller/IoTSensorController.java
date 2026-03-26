@@ -3,18 +3,15 @@ package com.iotSmartTrash.controller;
 import com.iotSmartTrash.dto.BinRealtimeStatusResponseDTO;
 import com.iotSmartTrash.dto.RawSensorLogCreateDTO;
 import com.iotSmartTrash.model.BinRawSensorLog;
-import com.iotSmartTrash.model.BinRealtimeStatus;
 import com.iotSmartTrash.service.BinRawSensorLogService;
 import com.iotSmartTrash.service.BinRealtimeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Controller cho IoT device (Raspberry Pi) gửi dữ liệu sensor và nhận trạng
@@ -32,41 +29,25 @@ public class IoTSensorController {
     // ━━━━━━━━━━━━━━━━━ Bin Realtime Status ━━━━━━━━━━━━━━━━━
 
     /**
-     * Legacy endpoint intentionally disabled.
-     * Device must send only /sensor-logs.
-     */
-    @PostMapping("/bins/{binId}/status")
-    public ResponseEntity<String> rejectLegacyStatusWrite(@PathVariable String binId) {
-        return ResponseEntity.status(HttpStatus.GONE)
-                .body("Deprecated endpoint. Use POST /api/v1/iot/bins/{binId}/sensor-logs only.");
-    }
-
-    /**
-     * Lấy trạng thái realtime của 1 thùng rác (cho Flutter app).
+     * Lấy trạng thái hiện tại của 1 thùng rác (cho Flutter app).
      */
     @GetMapping("/bins/{binId}/status")
     public ResponseEntity<BinRealtimeStatusResponseDTO> getBinStatus(@PathVariable String binId) {
-        BinRealtimeStatus status = binRealtimeService.getStatus(binId);
-        return ResponseEntity.ok(BinRealtimeStatusResponseDTO.fromModel(status));
+        return ResponseEntity.ok(binRealtimeService.getStatus(binId));
     }
 
     /**
-     * Lấy trạng thái realtime của tất cả thùng rác (cho Flutter app).
+     * Lấy trạng thái hiện tại của tất cả thùng rác (cho Flutter app).
      */
     @GetMapping("/bins/status")
     public ResponseEntity<List<BinRealtimeStatusResponseDTO>> getAllBinStatuses() {
-        List<BinRealtimeStatus> statuses = binRealtimeService.getAllStatuses();
-        List<BinRealtimeStatusResponseDTO> dtos = statuses.stream()
-                .map(BinRealtimeStatusResponseDTO::fromModel)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(dtos);
+        return ResponseEntity.ok(binRealtimeService.getAllStatuses());
     }
 
     // ━━━━━━━━━━━━━━━━━ Raw Sensor Logs ━━━━━━━━━━━━━━━━━
 
     /**
-     * Raspi gọi mỗi 30 giây để ghi raw sensor data.
-     * Replaces RTDB write to: bin_sensor_logs/{bin_id}/{log_id}
+     * Raspi gọi mỗi 1h để ghi raw sensor data.
      */
     @PostMapping("/bins/{binId}/sensor-logs")
     public ResponseEntity<String> addSensorLog(

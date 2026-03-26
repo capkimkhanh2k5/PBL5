@@ -8,6 +8,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/*
+    Model lưu trữ dữ liệu tổng hợp của Bin
+    Dùng để lưu trữ dữ liệu làm phân tích, thống kê
+*/
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -17,16 +21,8 @@ public class BinSensorLog {
     private String binId;
 
     private BinPeriod period;
+
     private String date;
-
-    @PropertyName("avg_temperature")
-    private Double avgTemperature;
-
-    @PropertyName("min_temperature")
-    private Double minTemperature;
-
-    @PropertyName("max_temperature")
-    private Double maxTemperature;
 
     @PropertyName("avg_battery")
     private Integer avgBattery;

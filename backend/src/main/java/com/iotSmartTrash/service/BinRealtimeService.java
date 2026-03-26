@@ -1,9 +1,9 @@
 package com.iotSmartTrash.service;
 
+import com.iotSmartTrash.dto.BinRealtimeStatusResponseDTO;
 import com.iotSmartTrash.exception.ServiceException;
 import com.iotSmartTrash.model.BinMetadata;
 import com.iotSmartTrash.model.BinRawSensorLog;
-import com.iotSmartTrash.model.BinRealtimeStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -26,74 +26,30 @@ public class BinRealtimeService {
     /**
      * Lấy trạng thái hiện tại của 1 thùng rác từ raw log mới nhất.
      */
-    public BinRealtimeStatus getStatus(String binId) {
-        // Ensure bin exists in metadata; otherwise return 404 as before.
+    public BinRealtimeStatusResponseDTO getStatus(String binId) {
         binMetadataService.getBinById(binId);
 
         List<BinRawSensorLog> logs = rawSensorLogService.getRecentLogsForBin(binId, 1);
-        if (logs.isEmpty()) {
-            return BinRealtimeStatus.builder()
-                    .id(binId)
-                    .status("UNKNOWN")
-                    .temperature(0.0)
-                    .batteryLevel(0)
-                    .fillOrganic(0)
-                    .fillRecycle(0)
-                    .fillNonRecycle(0)
-                    .fillHazardous(0)
-                    .lastUpdated(0L)
-                    .build();
-        }
-        return toStatus(binId, logs.get(0));
+        BinRawSensorLog latest = logs.isEmpty() ? null : logs.get(0);
+        return BinRealtimeStatusResponseDTO.fromRawLog(binId, latest, OFFLINE_THRESHOLD_MS);
     }
 
     /**
      * Lấy trạng thái hiện tại của tất cả thùng rác theo metadata.
      */
-    public List<BinRealtimeStatus> getAllStatuses() {
+    public List<BinRealtimeStatusResponseDTO> getAllStatuses() {
         try {
-            List<BinRealtimeStatus> statuses = new ArrayList<>();
+            List<BinRealtimeStatusResponseDTO> statuses = new ArrayList<>();
             List<BinMetadata> bins = binMetadataService.getAllBins();
             for (BinMetadata bin : bins) {
                 String binId = bin.getId();
                 List<BinRawSensorLog> logs = rawSensorLogService.getRecentLogsForBin(binId, 1);
-                if (logs.isEmpty()) {
-                    statuses.add(BinRealtimeStatus.builder()
-                            .id(binId)
-                            .status("UNKNOWN")
-                            .temperature(0.0)
-                            .batteryLevel(0)
-                            .fillOrganic(0)
-                            .fillRecycle(0)
-                            .fillNonRecycle(0)
-                            .fillHazardous(0)
-                            .lastUpdated(0L)
-                            .build());
-                    continue;
-                }
-                statuses.add(toStatus(binId, logs.get(0)));
+                BinRawSensorLog latest = logs.isEmpty() ? null : logs.get(0);
+                statuses.add(BinRealtimeStatusResponseDTO.fromRawLog(binId, latest, OFFLINE_THRESHOLD_MS));
             }
             return statuses;
         } catch (Exception e) {
             throw new ServiceException("Cannot get all bin statuses from raw logs", e);
         }
-    }
-
-    private BinRealtimeStatus toStatus(String binId, BinRawSensorLog log) {
-        long lastUpdated = log.getRecordedAt() != null ? log.getRecordedAt() : 0L;
-        long ageMs = System.currentTimeMillis() - lastUpdated;
-        String status = (lastUpdated > 0 && ageMs <= OFFLINE_THRESHOLD_MS) ? "ONLINE" : "OFFLINE";
-
-        return BinRealtimeStatus.builder()
-                .id(binId)
-                .status(status)
-                .temperature(log.getTemperature())
-                .batteryLevel(log.getBatteryLevel())
-                .fillOrganic(log.getFillOrganic())
-                .fillRecycle(log.getFillRecycle())
-                .fillNonRecycle(log.getFillNonRecycle())
-                .fillHazardous(log.getFillHazardous())
-                .lastUpdated(lastUpdated)
-                .build();
     }
 }
