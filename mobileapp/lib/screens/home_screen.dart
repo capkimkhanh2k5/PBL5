@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'bin_detail_screen.dart';
 import 'ai_chat_screen.dart';
 import '../services/api_service.dart';
@@ -8,10 +9,10 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   final _authService = AuthService();
   String _query = '';
@@ -30,6 +31,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> reloadBins() async {
+    await _loadData();
   }
 
   Future<void> _loadData() async {
@@ -89,7 +94,15 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _items = items);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Failed to load bins from backend.');
+      if (e is DioException) {
+        debugPrint(
+          'Home load bins failed: type=${e.type}, status=${e.response?.statusCode}, '
+          'uri=${e.requestOptions.uri}, message=${e.message}',
+        );
+      } else {
+        debugPrint('Home load bins failed: $e');
+      }
+      setState(() => _error = 'Failed to load bins from backend. Please check API_BASE_URL and backend status.');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);

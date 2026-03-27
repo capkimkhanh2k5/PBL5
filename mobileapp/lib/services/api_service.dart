@@ -5,20 +5,26 @@ import 'auth_service.dart';
 class ApiService {
   late final Dio _dio;
   final AuthService _authService;
+  static const String _apiBaseUrlOverride = String.fromEnvironment('API_BASE_URL');
 
-  // Chọn baseUrl theo platform để tránh lỗi kết nối giữa Android/iOS simulator.
+  // Ưu tiên API_BASE_URL từ --dart-define để tránh hard-code theo máy.
+  // Ví dụ: flutter run --dart-define=API_BASE_URL=http://192.168.1.10:8080/api/v1
   static String get _baseUrl {
+    if (_apiBaseUrlOverride.trim().isNotEmpty) {
+      return _apiBaseUrlOverride;
+    }
+
     if (kIsWeb) {
       return 'http://localhost:8080/api/v1';
     }
 
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
-        // Android emulator -> localhost máy host
-        return 'http://192.168.4.83:8081/api/v1';
+        // Mobile thật/emulator: dùng LAN IP của máy chạy backend.
+        return 'http://192.168.1.10:8080/api/v1';
       case TargetPlatform.iOS:
-        // iOS simulator -> localhost máy host
-        return 'http://localhost:8080/api/v1';
+        // iPhone thật không truy cập được localhost của Mac, dùng LAN IP.
+        return 'http://192.168.1.10:8080/api/v1';
       default:
         // Desktop/dev fallback
         return 'http://localhost:8080/api/v1';
@@ -68,6 +74,68 @@ class ApiService {
       return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     }
     return const [];
+  }
+
+  Future<Map<String, dynamic>> getBinById(String binId) async {
+    final response = await _dio.get('/bins/$binId');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getBinCoordinates(String binId) async {
+    final bin = await getBinById(binId);
+    return {
+      'id': bin['id'] ?? binId,
+      'latitude': (bin['latitude'] as num?)?.toDouble(),
+      'longitude': (bin['longitude'] as num?)?.toDouble(),
+    };
+  }
+
+  Future<void> updateBinCoordinates(
+    String binId, {
+    required double latitude,
+    required double longitude,
+  }) async {
+    if (latitude < -90 || latitude > 90) {
+      throw ArgumentError.value(latitude, 'latitude', 'Latitude must be in [-90, 90]');
+    }
+    if (longitude < -180 || longitude > 180) {
+      throw ArgumentError.value(longitude, 'longitude', 'Longitude must be in [-180, 180]');
+    }
+
+    await _dio.put('/bins/$binId', data: {
+      'latitude': latitude,
+      'longitude': longitude,
+    });
+  }
+
+  Future<void> connectBinFromQr({
+    required String binId,
+    required String name,
+    String? locationDescription,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final trimmedId = binId.trim();
+    final trimmedName = name.trim();
+    if (trimmedId.isEmpty) {
+      throw ArgumentError.value(binId, 'binId', 'binId must not be empty');
+    }
+    if (trimmedName.isEmpty) {
+      throw ArgumentError.value(name, 'name', 'name must not be empty');
+    }
+    if (latitude < -90 || latitude > 90) {
+      throw ArgumentError.value(latitude, 'latitude', 'Latitude must be in [-90, 90]');
+    }
+    if (longitude < -180 || longitude > 180) {
+      throw ArgumentError.value(longitude, 'longitude', 'Longitude must be in [-180, 180]');
+    }
+
+    await _dio.put('/bins/$trimmedId', data: {
+      'name': trimmedName,
+      'locationDescription': locationDescription?.trim(),
+      'latitude': latitude,
+      'longitude': longitude,
+    });
   }
 
   Future<List<Map<String, dynamic>>> getAllBinStatuses() async {
