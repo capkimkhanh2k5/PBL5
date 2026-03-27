@@ -15,7 +15,7 @@ class ApiService {
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         // Android emulator -> localhost máy host
-        return 'http://10.0.2.2:8080/api/v1';
+        return 'http://192.168.4.83:8081/api/v1';
       case TargetPlatform.iOS:
         // iOS simulator -> localhost máy host
         return 'http://localhost:8080/api/v1';
