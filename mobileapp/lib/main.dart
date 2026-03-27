@@ -28,9 +28,14 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  await NotificationService.instance.init();
-  await NotificationService.instance.initFcmAlerts();
+
   runApp(const MyApp());
+
+  NotificationService.instance.init().then((_) {
+    NotificationService.instance.initFcmAlerts();
+  }).catchError((e) {
+    debugPrint('Notification init error: $e');
+  });
 }
 
 class MyApp extends StatelessWidget {

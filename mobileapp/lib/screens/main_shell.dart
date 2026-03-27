@@ -15,10 +15,11 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _index = 0;
 
+  final GlobalKey<HomeScreenState> _homeKey = GlobalKey<HomeScreenState>();
   final GlobalKey<MapScreenState> _mapKey = GlobalKey<MapScreenState>();
 
   late final List<Widget> _pages = [
-    const HomeScreen(),                 // 0
+    HomeScreen(key: _homeKey),         // 0
     const ScheduleScreen(),             // 1
     const SizedBox.shrink(),            // 2 (FAB)
     const AiChatScreen(),               // 3
@@ -62,11 +63,16 @@ class _MainShellState extends State<MainShell> {
             ? null
             : FloatingActionButton(
           backgroundColor: const Color(0xFF2F6B3D),
-          onPressed: () {
-            Navigator.push(
+          onPressed: () async {
+            final connected = await Navigator.push<bool>(
               context,
               MaterialPageRoute(builder: (_) => const ScanQrScreen()),
             );
+
+            if (connected == true) {
+              setState(() => _index = 0);
+              await _homeKey.currentState?.reloadBins();
+            }
           },
           child: const Icon(Icons.qr_code_scanner, color: Colors.white),
         ),

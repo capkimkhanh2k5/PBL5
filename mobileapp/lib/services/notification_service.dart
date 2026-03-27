@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -17,6 +21,8 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
   bool _fcmInitialized = false;
+  bool _alertTopicSubscribed = false;
+  bool _topicRetryInProgress = false;
 
   Future<void> init() async {
     if (_initialized) return;
@@ -61,7 +67,11 @@ class NotificationService {
       badge: true,
       sound: true,
     );
-    await messaging.subscribeToTopic(_alertTopic);
+
+    final subscribed = await _subscribeToAlertTopic(messaging);
+    if (!subscribed && Platform.isIOS) {
+      unawaited(_retrySubscribeToAlertTopic(messaging));
+    }
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       final title =
@@ -74,18 +84,67 @@ class NotificationService {
     _fcmInitialized = true;
   }
 
+  Future<bool> _subscribeToAlertTopic(FirebaseMessaging messaging) async {
+    if (_alertTopicSubscribed) return true;
+
+    try {
+      if (Platform.isIOS) {
+        final apnsToken = await _waitForApnsToken(messaging);
+        if (apnsToken == null) {
+          debugPrint(
+            'FCM: APNS token not ready yet, skip subscribe and retry later.',
+          );
+          return false;
+        }
+      }
+
+      await messaging.subscribeToTopic(_alertTopic);
+      _alertTopicSubscribed = true;
+      return true;
+    } catch (e) {
+      debugPrint('FCM: subscribe to topic failed: $e');
+      return false;
+    }
+  }
+
+  Future<void> _retrySubscribeToAlertTopic(FirebaseMessaging messaging) async {
+    if (_topicRetryInProgress || _alertTopicSubscribed) return;
+    _topicRetryInProgress = true;
+
+    try {
+      for (var attempt = 0; attempt < 6 && !_alertTopicSubscribed; attempt++) {
+        await Future.delayed(const Duration(seconds: 5));
+        final subscribed = await _subscribeToAlertTopic(messaging);
+        if (subscribed) break;
+      }
+    } finally {
+      _topicRetryInProgress = false;
+    }
+  }
+
+  Future<String?> _waitForApnsToken(FirebaseMessaging messaging) async {
+    for (var attempt = 0; attempt < 10; attempt++) {
+      final token = await messaging.getAPNSToken();
+      if (token != null && token.isNotEmpty) {
+        return token;
+      }
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    return null;
+  }
+
   Future<void> showImmediateAlert({required String title, required String body}) async {
     await init();
 
-    final details = NotificationDetails(
-      android: const AndroidNotificationDetails(
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
         _alertChannelId,
         'System Alerts',
         channelDescription: 'Immediate system alerts from backend',
         importance: Importance.max,
         priority: Priority.high,
       ),
-      iOS: const DarwinNotificationDetails(),
+      iOS: DarwinNotificationDetails(),
     );
 
     await _plugin.show(alertNotificationId, title, body, details);
@@ -99,7 +158,7 @@ class NotificationService {
     await init();
 
     final at = tz.TZDateTime.from(scheduledAt, tz.local);
-    final details = NotificationDetails(
+    const details = NotificationDetails(
       android: AndroidNotificationDetails(
         'pickup_reminder_channel',
         'Pickup Reminders',
@@ -107,7 +166,7 @@ class NotificationService {
         importance: Importance.max,
         priority: Priority.high,
       ),
-      iOS: const DarwinNotificationDetails(),
+      iOS: DarwinNotificationDetails(),
     );
 
     await _plugin.zonedSchedule(
