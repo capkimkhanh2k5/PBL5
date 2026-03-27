@@ -1,17 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 import 'services/notification_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_shell.dart';
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  await NotificationService.instance.init();
+
+  final title =
+      message.notification?.title ?? message.data['title']?.toString() ?? 'Canh bao he thong';
+  final body =
+      message.notification?.body ?? message.data['message']?.toString() ?? 'Co canh bao moi.';
+
+  await NotificationService.instance.showImmediateAlert(title: title, body: body);
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   await NotificationService.instance.init();
+  await NotificationService.instance.initFcmAlerts();
   runApp(const MyApp());
 }
 
