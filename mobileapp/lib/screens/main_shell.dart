@@ -3,6 +3,7 @@ import 'home_screen.dart';
 import 'scan_qr_screen.dart';
 import 'ai_chat_screen.dart';
 import 'schedule_screen.dart';
+import 'map_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -14,12 +15,14 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _index = 0;
 
-  final _pages = const [
-    HomeScreen(),        // 0
-    ScheduleScreen(),    // 1
-    SizedBox.shrink(),   // 2 (FAB)
-    AiChatScreen(),      // 3
-    Placeholder(),       // 4
+  final GlobalKey<MapScreenState> _mapKey = GlobalKey<MapScreenState>();
+
+  late final List<Widget> _pages = [
+    const HomeScreen(),                 // 0
+    const ScheduleScreen(),             // 1
+    const SizedBox.shrink(),            // 2 (FAB)
+    const AiChatScreen(),               // 3
+    MapScreen(key: _mapKey),            // 4
   ];
 
   static const _active = Color(0xFF2F6B3D);
@@ -30,12 +33,21 @@ class _MainShellState extends State<MainShell> {
     final keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
 
     return PopScope(
-      canPop: _index == 0, // chỉ cho thoát khi đang ở Home
-      onPopInvoked: (didPop) {
-        // didPop == true nghĩa là hệ thống đã pop rồi -> không làm gì nữa
+      canPop: _index == 0,
+      onPopInvoked: (didPop) async {
         if (didPop) return;
 
-        // Nếu không ở Home, bấm back sẽ về Home
+        // Nếu đang ở tab map, cho map xử lý back trước
+        if (_index == 4) {
+          final handledByMap =
+              await _mapKey.currentState?.handleBack() ?? false;
+
+          if (handledByMap) {
+            return;
+          }
+        }
+
+        // Nếu không ở Home thì back về Home
         if (_index != 0) {
           setState(() => _index = 0);
         }
@@ -51,7 +63,6 @@ class _MainShellState extends State<MainShell> {
             : FloatingActionButton(
           backgroundColor: const Color(0xFF2F6B3D),
           onPressed: () {
-            // Không cần set _index = 2 vì bạn push sang route mới
             Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const ScanQrScreen()),
