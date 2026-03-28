@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'history_screen.dart';
+import 'map_screen.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 
@@ -273,9 +274,13 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                   _primaryButton(
                     text: 'Xem vị trí thùng',
                     onTap: () {
-                      // TODO: làm sau
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('TODO: Map')),
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MapScreen(
+                            initialBinId: widget.binId,
+                          ),
+                        ),
                       );
                     },
                   ),
@@ -384,7 +389,7 @@ class WasteMiniCard extends StatelessWidget {
     final pct = (percent * 100).round();
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),

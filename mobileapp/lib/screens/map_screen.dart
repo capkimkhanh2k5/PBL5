@@ -4,7 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:latlong2/latlong.dart';
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  final String? initialBinId;
+  const MapScreen({super.key, this.initialBinId});
 
   @override
   State<MapScreen> createState() => MapScreenState();
@@ -26,6 +27,9 @@ class MapScreenState extends State<MapScreen>
   @override
   void initState() {
     super.initState();
+    if (widget.initialBinId != null) {
+      _selectedBinId = widget.initialBinId;
+    }
     _binsFuture = fetchBins();
   }
 
@@ -263,14 +267,25 @@ class MapScreenState extends State<MapScreen>
           }
 
           final bins = snapshot.data!;
+          
+          LatLng initCenter = const LatLng(14.5, 108.0);
+          double initZoom = 6.0;
+          
+          if (widget.initialBinId != null && _selectedBinId == widget.initialBinId) {
+            try {
+              final targetBin = bins.firstWhere((b) => b['id'] == widget.initialBinId);
+              initCenter = LatLng(targetBin['latitude'], targetBin['longitude']);
+              initZoom = 16.0;
+            } catch (_) {}
+          }
 
           return Stack(
             children: [
               FlutterMap(
                 mapController: _mapController,
-                options: const MapOptions(
-                  initialCenter: LatLng(14.5, 108.0),
-                  initialZoom: 6,
+                options: MapOptions(
+                  initialCenter: initCenter,
+                  initialZoom: initZoom,
                 ),
                 children: [
                   TileLayer(
