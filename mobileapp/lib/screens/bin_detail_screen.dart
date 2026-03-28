@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/top_toast.dart';
 import 'history_screen.dart';
+import 'map_screen.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 
@@ -205,7 +206,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                     crossAxisCount: 2,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
-                    childAspectRatio: 1.9,
+                    childAspectRatio: 1.8,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     children: [
@@ -274,8 +275,14 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                   _primaryButton(
                     text: 'Xem vị trí thùng',
                     onTap: () {
-                      // TODO: làm sau
-                      TopToast.show(context, 'TODO: Map');
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MapScreen(
+                            initialBinId: widget.binId,
+                          ),
+                        ),
+                      );
                     },
                   ),
                 ],
@@ -383,7 +390,7 @@ class WasteMiniCard extends StatelessWidget {
     final pct = (percent * 100).round();
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),

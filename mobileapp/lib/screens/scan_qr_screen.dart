@@ -35,7 +35,9 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
     final binId = _extractBinId(raw.trim());
     if (binId == null || binId.isEmpty) {
       if (!mounted) return;
-      TopToast.show(context, 'Invalid QR data. Cannot read binId.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid QR data. This is not a valid Smart Bin QR code.')),
+      );
       return;
     }
 
@@ -67,28 +69,25 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
       try {
         final decoded = jsonDecode(raw);
         if (decoded is Map<String, dynamic>) {
+          // 1. Xác minh hệ thống
+          if (decoded['system'] != 'PBL5-SmartBin') {
+            return null; // Từ chối QR không có chữ ký của PBL5
+          }
+          
+          // 2. Lấy ID thùng rác
           final v = decoded['binId'] ?? decoded['id'] ?? decoded['bin_id'];
-          if (v != null) return v.toString();
+          if (v != null && v.toString().trim().isNotEmpty) {
+            return v.toString().trim();
+          }
         }
       } catch (_) {
-        // fallback to other parser
+        // Lỗi parse JSON
+        return null;
       }
     }
 
-    final uri = Uri.tryParse(raw);
-    if (uri != null) {
-      final fromQuery = uri.queryParameters['binId'] ??
-          uri.queryParameters['id'] ??
-          uri.queryParameters['bin_id'];
-      if (fromQuery != null && fromQuery.trim().isNotEmpty) {
-        return fromQuery.trim();
-      }
-
-      final lastPath = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '';
-      if (lastPath.isNotEmpty) return lastPath;
-    }
-
-    return raw;
+    // Nếu không khớp chuẩn JSON hoặc bất kỳ lý do gì, luôn từ chối (trả về null)
+    return null;
   }
 
   @override
