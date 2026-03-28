@@ -56,7 +56,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       setState(() => _selected = point);
     } catch (e) {
       if (!mounted) return;
-      TopToast.show(context, e.toString();
+      TopToast.show(context, e.toString());
     } finally {
       if (mounted) {
         setState(() => _loadingCurrent = false);

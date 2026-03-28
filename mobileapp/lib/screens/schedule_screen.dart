@@ -268,7 +268,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         _reminderEnabled = true;
         _selectedReminderLeadMinutes = pickedLead;
       });
-      TopToast.show(context, 'Reminder set ${_leadLabel(pickedLead);
+      TopToast.show(context, 'Reminder set ${_leadLabel(pickedLead)}');
     } catch (_) {
       if (!mounted) return;
       TopToast.show(context, 'Cannot enable reminder right now. Please try again.');

@@ -70,7 +70,7 @@ class _BinConnectionFormScreenState extends State<BinConnectionFormScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      TopToast.show(context, e.toString();
+      TopToast.show(context, e.toString());
     }
   }
 
