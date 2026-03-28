@@ -146,6 +146,14 @@ class HomeScreenState extends State<HomeScreen> {
     const bg = Colors.white;
     const headerH = 210.0;
 
+    final currentUser = _authService.currentUser;
+    final rawName = currentUser?.displayName ?? '';
+    final rawEmail = currentUser?.email ?? '';
+    
+    final displayName = rawName.isNotEmpty 
+        ? rawName 
+        : (rawEmail.isNotEmpty ? rawEmail.split('@').first : 'User');
+
     final filtered = _items.where((e) {
       final q = _query.trim().toLowerCase();
       if (q.isEmpty) return true;
@@ -186,9 +194,9 @@ class HomeScreenState extends State<HomeScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text(
-                                    "Hello, Hellen!",
-                                    style: TextStyle(
+                                  Text(
+                                    "Hello, $displayName!",
+                                    style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 30,
                                       fontWeight: FontWeight.w800,
