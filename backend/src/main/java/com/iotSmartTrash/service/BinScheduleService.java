@@ -96,19 +96,28 @@ public class BinScheduleService {
     }
 
     private static int estimatePickupInHours(double urgencyScore, int hazardousFill) {
-        if (hazardousFill >= 90) return 4;
-        if (urgencyScore >= 90) return 6;
-        if (urgencyScore >= 80) return 10;
-        if (urgencyScore >= 70) return 16;
-        if (urgencyScore >= 55) return 24;
-        if (urgencyScore >= 40) return 36;
+        if (hazardousFill >= 90)
+            return 4;
+        if (urgencyScore >= 90)
+            return 6;
+        if (urgencyScore >= 80)
+            return 10;
+        if (urgencyScore >= 70)
+            return 16;
+        if (urgencyScore >= 55)
+            return 24;
+        if (urgencyScore >= 40)
+            return 36;
         return 48;
     }
 
     private static String priorityByUrgency(double urgencyScore, int hazardousFill) {
-        if (hazardousFill >= 90 || urgencyScore >= 90) return "CRITICAL";
-        if (hazardousFill >= 80 || urgencyScore >= 80) return "HIGH";
-        if (urgencyScore >= 65) return "MEDIUM";
+        if (hazardousFill >= 90 || urgencyScore >= 90)
+            return "CRITICAL";
+        if (hazardousFill >= 80 || urgencyScore >= 80)
+            return "HIGH";
+        if (urgencyScore >= 65)
+            return "MEDIUM";
         return "LOW";
     }
 

@@ -46,10 +46,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         final avg = _toInt(row['avgFill']) ?? 0;
         final predictedMs = _parseEpochMillis(row['predictedPickupAt']);
         final now = DateTime.now();
-        final rawEta = predictedMs > 0
+        final eta = predictedMs > 0
             ? _fromEpochMillisToLocal(predictedMs)
             : now.add(const Duration(days: 1));
-        final eta = rawEta.isBefore(now) ? now.add(const Duration(minutes: 30)) : rawEta;
         final priority = (row['priority'] ?? 'LOW').toString();
         return _PickupItem(binId: id, avgFill: avg, eta: eta, priority: priority);
       }).toList();
@@ -419,9 +418,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                             fontSize: 16, fontWeight: FontWeight.w600),
                       ),
                       Text(
-                        _items.isNotEmpty ? "~${_items.first.daysLeft} days" : "",
-                        style: const TextStyle(
-                          color: primary,
+                        _items.isNotEmpty ? _items.first.timeLeftLabel : "",
+                        style: TextStyle(
+                          color: _items.isNotEmpty && _items.first.eta.isBefore(DateTime.now()) 
+                              ? Colors.red 
+                              : primary,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -485,7 +486,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             const SizedBox(height: 14),
 
             for (final it in _items.skip(1).take(5))
-              _pickupTile(it.formattedDate, 'Estimated · ${it.binId}', '${it.priority} · In ${it.daysLeft} days'),
+              _pickupTile(
+                it.formattedDate, 
+                'Estimated · ${it.binId}', 
+                it.eta.isBefore(DateTime.now()) 
+                    ? 'Quá hạn' 
+                    : '${it.priority} · In ${it.timeLeftLabel}',
+                isOverdue: it.eta.isBefore(DateTime.now())
+              ),
           ],
         ),
         ),
@@ -493,7 +501,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
-  static Widget _pickupTile(String date, String subtitle, String badge) {
+  static Widget _pickupTile(String date, String subtitle, String badge, {bool isOverdue = false}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
@@ -532,12 +540,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
-              color: const Color(0xFFE3F2E6),
+              color: isOverdue ? const Color(0xFFFFEBEB) : const Color(0xFFE3F2E6),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
               badge,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 12, 
+                fontWeight: FontWeight.w600,
+                color: isOverdue ? Colors.red : Colors.black87,
+              ),
             ),
           )
         ],
@@ -558,6 +570,17 @@ class _PickupItem {
     final diffMinutes = eta.difference(DateTime.now()).inMinutes;
     if (diffMinutes <= 0) return 0;
     return (diffMinutes / (24 * 60)).ceil();
+  }
+
+  String get timeLeftLabel {
+    final now = DateTime.now();
+    if (eta.isBefore(now)) return 'Đã quá hạn';
+    
+    final diffMinutes = eta.difference(now).inMinutes;
+    if (diffMinutes < 60) return '$diffMinutes phút';
+    if (diffMinutes < 1440) return '${diffMinutes ~/ 60} giờ';
+    final days = (diffMinutes / 1440).ceil();
+    return '$days ngày';
   }
 
   String get formatted {

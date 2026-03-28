@@ -49,10 +49,13 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
                   child: Row(
                     children: [
-                      _circleIcon(
-                        icon: Icons.arrow_back,
-                        onTap: () => Navigator.pop(context),
-                      ),
+                      if (Navigator.canPop(context))
+                        _circleIcon(
+                          icon: Icons.arrow_back,
+                          onTap: () => Navigator.pop(context),
+                        )
+                      else
+                        const SizedBox(width: 36),
                       const Spacer(),
                       _circleIcon(
                         icon: Icons.help_outline,
