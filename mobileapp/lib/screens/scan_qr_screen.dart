@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../utils/top_toast.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'bin_connection_form_screen.dart';
@@ -34,9 +35,7 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
     final binId = _extractBinId(raw.trim());
     if (binId == null || binId.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid QR data. Cannot read binId.')),
-      );
+      TopToast.show(context, 'Invalid QR data. Cannot read binId.');
       return;
     }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/top_toast.dart';
 import 'history_screen.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
@@ -274,9 +275,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                     text: 'Xem vị trí thùng',
                     onTap: () {
                       // TODO: làm sau
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('TODO: Map')),
-                      );
+                      TopToast.show(context, 'TODO: Map');
                     },
                   ),
                 ],
