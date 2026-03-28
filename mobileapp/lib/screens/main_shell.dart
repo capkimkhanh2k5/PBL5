@@ -63,6 +63,8 @@ class _MainShellState extends State<MainShell> {
             ? null
             : FloatingActionButton(
           backgroundColor: const Color(0xFF2F6B3D),
+          shape: const CircleBorder(),
+          elevation: 4,
           onPressed: () async {
             final connected = await Navigator.push<bool>(
               context,

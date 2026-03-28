@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/top_toast.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
@@ -70,16 +71,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     try {
       await _api.triggerAggregateSensorLogs();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Triggered aggregate. Refreshing schedule...')),
-      );
+      TopToast.show(context, 'Triggered aggregate. Refreshing schedule...');
       await Future<void>.delayed(const Duration(seconds: 2));
       await _load();
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cannot trigger aggregate right now.')),
-      );
+      TopToast.show(context, 'Cannot trigger aggregate right now.');
     } finally {
       if (mounted) setState(() => _triggering = false);
     }
@@ -242,9 +239,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       await _storage.delete(key: _reminderLeadKey);
       if (!mounted) return;
       setState(() => _reminderEnabled = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reminder disabled.')),
-      );
+      TopToast.show(context, 'Reminder disabled.');
       return;
     }
 
@@ -273,20 +268,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         _reminderEnabled = true;
         _selectedReminderLeadMinutes = pickedLead;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Reminder set ${_leadLabel(pickedLead)} before pickup for ${next.binId}.',
-          ),
-        ),
-      );
+      TopToast.show(context, 'Reminder set ${_leadLabel(pickedLead);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cannot enable reminder right now. Please try again.'),
-        ),
-      );
+      TopToast.show(context, 'Cannot enable reminder right now. Please try again.');
     }
   }
 

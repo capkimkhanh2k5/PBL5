@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import '../utils/top_toast.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
@@ -69,9 +70,7 @@ class _BinConnectionFormScreenState extends State<BinConnectionFormScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      TopToast.show(context, e.toString();
     }
   }
 
@@ -100,9 +99,7 @@ class _BinConnectionFormScreenState extends State<BinConnectionFormScreen> {
     if (!valid) return;
 
     if (_latitude == null || _longitude == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select location first.')),
-      );
+      TopToast.show(context, 'Please select location first.');
       return;
     }
 
@@ -122,9 +119,7 @@ class _BinConnectionFormScreenState extends State<BinConnectionFormScreen> {
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bin connected successfully.')),
-      );
+      TopToast.show(context, 'Bin connected successfully.');
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
@@ -137,9 +132,7 @@ class _BinConnectionFormScreenState extends State<BinConnectionFormScreen> {
         message = e.toString();
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      TopToast.show(context, message);
     } finally {
       if (mounted) {
         setState(() => _saving = false);

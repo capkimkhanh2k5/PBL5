@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../utils/top_toast.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'bin_connection_form_screen.dart';

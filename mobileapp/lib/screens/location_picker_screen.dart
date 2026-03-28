@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/top_toast.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
@@ -55,9 +56,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       setState(() => _selected = point);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      TopToast.show(context, e.toString();
     } finally {
       if (mounted) {
         setState(() => _loadingCurrent = false);
