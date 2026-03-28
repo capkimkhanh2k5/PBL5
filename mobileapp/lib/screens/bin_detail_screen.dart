@@ -204,7 +204,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                     crossAxisCount: 2,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
-                    childAspectRatio: 1.9,
+                    childAspectRatio: 1.8,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     children: [
