@@ -1,449 +1,531 @@
+"""
+TestModel.py  —  v3.0  (ONNX + Adaptive Gamma + Square-aware Pipeline)
+=======================================================================
+Cập nhật để khớp với flow TrainModel v7 + testPC v3.0:
+
+[MODEL]   Chuyển từ PyTorch (.pth) sang ONNX Runtime.
+          Không cần định nghĩa lại WasteDetectorModel / GeM / WasteDetector.
+          Đọc classes, img_size, agc_target từ model_meta.json (xuất
+          cùng ONNX trong notebook) thay vì hard-code.
+
+[AGC]     Thêm FastAdaptiveGamma — mirror đúng pipeline v7:
+          Đo mean brightness kênh V (max RGB) trên TOÀN BỘ ảnh,
+          tính gamma = log(target/255) / log(mean_V/255), build LUT O(1).
+          Áp dụng TRƯỚC Resize/CenterCrop để đo sáng đại diện.
+
+[TF]      Val transform khớp đúng v7:
+            Resize(int) → AGC → CenterCrop(img_size) → ToTensor → Normalize
+          (Resize int giữ aspect ratio, CenterCrop lấy vùng trung tâm)
+
+[ONNX]    Inference qua ort.InferenceSession, outputs: ['logits', 'objectness']
+          Softmax + Sigmoid thủ công bằng numpy — không cần torch.nn.
+
+[GRADCAM] GradCAM giữ lại nhưng dùng PyTorch model load từ .pth (optional)
+          nếu file .pth tồn tại bên cạnh ONNX. Nếu không có .pth, bounding
+          box được tạo từ contour của foreground mask đơn giản.
+=======================================================================
+"""
 
 import os
 import base64
 import time
-import torch
-import torch.nn as nn
-import torchvision.transforms as transforms
-import torchvision.models as models
-import numpy as np
-import cv2
-from flask import Flask, render_template_string
-from PIL import Image
+import math
+import json
 import io
 
-# Get the directory where the script is located
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR = os.path.dirname(SCRIPT_DIR)  # Parent: Model/
+import numpy as np
+import cv2
+import onnxruntime as ort
+import torch
+import torchvision.transforms as transforms
+from PIL import Image
+from flask import Flask, render_template_string
 
-# Configuration
-TEST_DIR = os.path.join(SCRIPT_DIR, "TestImage")
-MODEL_PATH = os.path.join(MODEL_DIR, "Train", "outputs", "best_model.pth")
+# ============================================================
+# 1. ĐƯỜNG DẪN FILE
+# ============================================================
 
-# Will be loaded from checkpoint
-CLASS_NAMES = []
-IMG_SIZE = 720
+SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR   = os.path.dirname(SCRIPT_DIR)
+
+TEST_DIR    = os.path.join(SCRIPT_DIR, "TestImage")
+ONNX_PATH   = os.path.join(MODEL_DIR, "Train", "outputs", "waste_detector.onnx")
+META_PATH   = os.path.join(MODEL_DIR, "Train", "outputs", "model_meta.json")
+PTH_PATH    = os.path.join(MODEL_DIR, "Train", "outputs", "best_model.pth")
+
+# ============================================================
+# 2. ĐỌC MODEL META  (classes, img_size, AGC config)
+# ============================================================
+
+IMG_SIZE   = 384   # fallback
+
+_meta = {}
+if os.path.exists(META_PATH):
+    with open(META_PATH) as f:
+        _meta = json.load(f)
+    print(f"[INFO] Loaded meta: {META_PATH}")
+else:
+    print(f"[WARN] {META_PATH} not found — dùng giá trị mặc định")
+
+CLASS_NAMES = _meta.get('classes', [
+    'Battery', 'Biological', 'General_Waste',
+    'Glass', 'Metal', 'Paper_Cardboard', 'Plastic'
+])
+IMG_SIZE    = _meta.get('img_size',        IMG_SIZE)
+AGC_TARGET  = _meta.get('agc_target',      128)
+AGC_MIN     = _meta.get('agc_gamma_min',   0.4)
+AGC_MAX     = _meta.get('agc_gamma_max',   3.0)
+
+print(f"[INFO] Classes   : {CLASS_NAMES}")
+print(f"[INFO] img_size  : {IMG_SIZE}")
+print(f"[INFO] AGC       : target={AGC_TARGET}  clip=[{AGC_MIN}, {AGC_MAX}]")
+
+# ============================================================
+# 3. CLASS ALIAS & WASTE CATEGORIES
+# ============================================================
 
 CLASS_ALIASES = {
-    'battery': 'Battery',
-    'biological': 'Biological',
-    'general_waste': 'General_Waste',
-    'trash': 'General_Waste',
-    'glass': 'Glass',
-    'brown-glass': 'Glass',
-    'white-glass': 'Glass',
-    'green-glass': 'Glass',
-    'metal': 'Metal',
-    'paper_cardboard': 'Paper_Cardboard',
-    'paper-cardboard': 'Paper_Cardboard',
-    'paper': 'Paper_Cardboard',
-    'cardboard': 'Paper_Cardboard',
-    'plastic': 'Plastic',
-    'textiles': 'General_Waste',
-    'clothes': 'General_Waste',
-    'shoes': 'General_Waste',
+    'battery':           'Battery',
+    'biological':        'Biological',
+    'general_waste':     'General_Waste',
+    'trash':             'General_Waste',
+    'glass':             'Glass',
+    'brown-glass':       'Glass',
+    'white-glass':       'Glass',
+    'green-glass':       'Glass',
+    'metal':             'Metal',
+    'paper_cardboard':   'Paper_Cardboard',
+    'paper-cardboard':   'Paper_Cardboard',
+    'paper':             'Paper_Cardboard',
+    'cardboard':         'Paper_Cardboard',
+    'plastic':           'Plastic',
+    'textiles':          'General_Waste',
+    'clothes':           'General_Waste',
+    'shoes':             'General_Waste',
 }
 
-# Waste category mapping: class -> category
 WASTE_CATEGORIES = {
-    'Battery':       {'category': 'Hazardous',      'icon': 'alert-triangle', 'color': '#FF003C', 'bg': 'rgba(255,0,60,0.15)',   'border': 'rgba(255,0,60,0.4)'},
-    'Biological':    {'category': 'Organic',         'icon': 'leaf',           'color': '#0AFF00', 'bg': 'rgba(10,255,0,0.15)',   'border': 'rgba(10,255,0,0.4)'},
-    'General_Waste': {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)','border': 'rgba(148,163,184,0.4)'},
-    'Glass':         {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
-    'Metal':         {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
-    'Paper_Cardboard': {'category': 'Recyclable',    'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
-    'Plastic':       {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)', 'border': 'rgba(59,130,246,0.4)'},
+    'Battery':         {'category': 'Hazardous',      'icon': 'alert-triangle', 'color': '#FF003C', 'bg': 'rgba(255,0,60,0.15)',    'border': 'rgba(255,0,60,0.4)'},
+    'Biological':      {'category': 'Organic',         'icon': 'leaf',           'color': '#0AFF00', 'bg': 'rgba(10,255,0,0.15)',    'border': 'rgba(10,255,0,0.4)'},
+    'General_Waste':   {'category': 'Non-Recyclable',  'icon': 'trash-2',        'color': '#94A3B8', 'bg': 'rgba(148,163,184,0.15)', 'border': 'rgba(148,163,184,0.4)'},
+    'Glass':           {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)',  'border': 'rgba(59,130,246,0.4)'},
+    'Metal':           {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)',  'border': 'rgba(59,130,246,0.4)'},
+    'Paper_Cardboard': {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)',  'border': 'rgba(59,130,246,0.4)'},
+    'Plastic':         {'category': 'Recyclable',      'icon': 'recycle',        'color': '#3B82F6', 'bg': 'rgba(59,130,246,0.15)',  'border': 'rgba(59,130,246,0.4)'},
 }
 
 
-def normalize_class_name(class_name):
-    key = str(class_name).strip().lower().replace(' ', '_')
+def normalize_class_name(class_name: str) -> str:
+    key = str(class_name).strip().lower().replace(' ', '_').replace('-', '_')
     return CLASS_ALIASES.get(key, class_name)
 
-def get_waste_category(class_name):
-    """Get waste category info for a class"""
-    normalized_name = normalize_class_name(class_name)
-    return WASTE_CATEGORIES.get(normalized_name, {'category': 'Unknown', 'icon': 'help-circle', 'color': '#64748B', 'bg': 'rgba(100,116,139,0.15)', 'border': 'rgba(100,116,139,0.4)'})
 
-app = Flask(__name__)
-
-class GeM(nn.Module):
-    """Generalized Mean Pooling"""
-    def __init__(self, p=3.0, eps=1e-6):
-        super().__init__()
-        self.p = nn.Parameter(torch.ones(1) * p)
-        self.eps = eps
-
-    def forward(self, x):
-        return x.clamp(min=self.eps).pow(self.p).mean(dim=[2, 3]).pow(1.0 / self.p)
+def get_waste_category(class_name: str) -> dict:
+    normalized = normalize_class_name(class_name)
+    return WASTE_CATEGORIES.get(normalized, {
+        'category': 'Unknown', 'icon': 'help-circle',
+        'color': '#64748B', 'bg': 'rgba(100,116,139,0.15)',
+        'border': 'rgba(100,116,139,0.4)'
+    })
 
 
-class WasteDetectorModel(nn.Module):
-    """MobileNetV3-based waste classifier with GeM pooling and objectness detection"""
-    
-    def __init__(self, num_classes=7):
-        super().__init__()
-        backbone = models.mobilenet_v3_large(weights=None)
-        
-        self.features = backbone.features
-        self.gem_pool = GeM()
-        
-        # Classifier: Linear→BN→Hardswish→Dropout→Linear→BN→Hardswish→Dropout→Linear
-        self.classifier = nn.Sequential(
-            nn.Linear(960, 512),        # 0
-            nn.BatchNorm1d(512),         # 1
-            nn.Hardswish(),              # 2
-            nn.Dropout(p=0.3),           # 3
-            nn.Linear(512, 256),         # 4
-            nn.BatchNorm1d(256),         # 5
-            nn.Hardswish(),              # 6
-            nn.Dropout(p=0.2),           # 7
-            nn.Linear(256, num_classes)  # 8
-        )
-        
-        # Objectness head
-        self.objectness = nn.Sequential(
-            nn.Linear(960, 128),
-            nn.ReLU(),
-            nn.Dropout(p=0.2),
-            nn.Linear(128, 1)
-        )
-    
-    def forward(self, x):
-        features = self.features(x)
-        pooled = self.gem_pool(features)
-        
-        class_logits = self.classifier(pooled)
-        obj_score = self.objectness(pooled)
-        
-        return class_logits, obj_score, features
-
-
-def load_model(model_path):
-    """Load the trained MobileNetV3 model from .pth checkpoint"""
-    global CLASS_NAMES, IMG_SIZE
-    
-    print(f"📦 Loading model from: {model_path}")
-    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
-    
-    raw_class_names = checkpoint.get('classes',
-        ['Battery', 'Biological', 'General_Waste', 'Glass', 'Metal', 'Paper_Cardboard', 'Plastic'])
-    CLASS_NAMES = [normalize_class_name(name) for name in raw_class_names]
-    IMG_SIZE = checkpoint.get('img_size', 720)
-    
-    num_classes = len(CLASS_NAMES)
-    model = WasteDetectorModel(num_classes=num_classes)
-    
-    # Load state dict
-    state_dict = checkpoint.get('model_state', checkpoint.get('model_state_dict', checkpoint))
-    model.load_state_dict(state_dict, strict=True)
-    model.eval()
-    
-    val_acc = checkpoint.get('val_acc', 'N/A')
-    epoch = checkpoint.get('epoch', 'N/A')
-    
-    print(f"✅ Model loaded successfully!")
-    print(f"   Architecture: MobileNetV3-Large + Objectness Head")
-    print(f"   Classes ({num_classes}): {CLASS_NAMES}")
-    print(f"   Image size: {IMG_SIZE}")
-    print(f"   Val accuracy: {val_acc}")
-    print(f"   Epoch: {epoch}")
-    
-    return model
+def get_actual_class(filename: str) -> str:
+    """Trích class thực tế từ tên file."""
+    name = filename.lower()
+    OLD_TO_NEW = {
+        'battery':        'Battery',
+        'biological':     'Biological',
+        'cardboard':      'Paper_Cardboard',
+        'paper':          'Paper_Cardboard',
+        'paper_cardboard':'Paper_Cardboard',
+        'paper-cardboard':'Paper_Cardboard',
+        'clothes':        'General_Waste',
+        'shoes':          'General_Waste',
+        'trash':          'General_Waste',
+        'glass':          'Glass',
+        'brown-glass':    'Glass',
+        'white-glass':    'Glass',
+        'green-glass':    'Glass',
+        'metal':          'Metal',
+        'plastic':        'Plastic',
+        'textiles':       'General_Waste',
+        'general_waste':  'General_Waste',
+    }
+    for old, new in OLD_TO_NEW.items():
+        if old in name:
+            return new
+    return "unknown"
 
 
 # ============================================================
-# IMAGE PREPROCESSING & INFERENCE
+# 4. ADAPTIVE GAMMA CORRECTION  (FastAdaptiveGamma — numpy + cv2.LUT)
+# ============================================================
+# Mirror đúng testPC v3.0: đo mean_V trên TOÀN BỘ ảnh, build LUT O(1).
 # ============================================================
 
-def get_transform(img_size):
-    """Get the image transform pipeline"""
-    return transforms.Compose([
-        transforms.Resize((img_size, img_size)),
+class FastAdaptiveGamma:
+    """
+    Adaptive Gamma Correction thuần numpy + cv2.LUT.
+    Dùng như torchvision Transform (callable nhận PIL Image, trả PIL Image).
+
+    Công thức: γ = log(target/255) / log(mean_V/255)
+      mean_V < target → γ < 1 → kéo sáng ảnh tối
+      mean_V > target → γ > 1 → dìm ảnh chói
+      mean_V ≈ target → γ ≈ 1 → pass-through
+    """
+    def __init__(self, target: int = 128,
+                 g_min: float = 0.4, g_max: float = 3.0):
+        self.target = float(np.clip(target, 8, 247))
+        self.g_min  = g_min
+        self.g_max  = g_max
+        self._idx   = np.arange(256, dtype=np.float64) / 255.0
+        self._last_gamma = -1.0
+        self._lut        = None
+
+    def _compute_gamma(self, mean_v: float) -> float:
+        mean_v     = float(np.clip(mean_v, 8.0, 247.0))
+        log_mean   = math.log(mean_v / 255.0)
+        log_target = math.log(self.target / 255.0)
+        if abs(log_mean - log_target) < 0.03:
+            return 1.0
+        return float(np.clip(log_target / log_mean, self.g_min, self.g_max))
+
+    def apply_numpy(self, img_rgb: np.ndarray) -> np.ndarray:
+        """img_rgb: (H, W, 3) uint8 RGB → (H, W, 3) uint8 RGB"""
+        mean_v = float(img_rgb.max(axis=2).mean())
+        gamma  = self._compute_gamma(mean_v)
+
+        if abs(gamma - 1.0) < 0.02:
+            return img_rgb
+
+        if abs(gamma - self._last_gamma) > 0.005:
+            lut             = (np.power(self._idx, gamma) * 255.0)
+            self._lut       = lut.clip(0, 255).astype(np.uint8)
+            self._last_gamma = gamma
+
+        return cv2.LUT(img_rgb, self._lut)
+
+    def __call__(self, pil_img: Image.Image) -> Image.Image:
+        """Dùng như torchvision transform — nhận PIL, trả PIL."""
+        arr     = np.array(pil_img, dtype=np.uint8)
+        arr_agc = self.apply_numpy(arr)
+        return Image.fromarray(arr_agc)
+
+    def get_last_gamma(self) -> float:
+        return self._last_gamma
+
+
+agc = FastAdaptiveGamma(target=AGC_TARGET, g_min=AGC_MIN, g_max=AGC_MAX)
+print(f"[INIT] FastAdaptiveGamma ready  (target={AGC_TARGET})")
+
+# ============================================================
+# 5. LOAD ONNX MODEL
+# ============================================================
+
+_providers = (
+    ['CUDAExecutionProvider', 'CPUExecutionProvider']
+    if ort.get_device() == 'GPU'
+    else ['CPUExecutionProvider']
+)
+
+ort_session   = ort.InferenceSession(ONNX_PATH, providers=_providers)
+_input_name   = ort_session.get_inputs()[0].name      # 'image'
+_out_logits   = ort_session.get_outputs()[0].name     # 'logits'
+_out_obj      = ort_session.get_outputs()[1].name     # 'objectness'
+
+print(f"[INFO] ONNX model  : {ONNX_PATH}")
+print(f"[INFO] Provider    : {ort_session.get_providers()}")
+print(f"[INFO] Input       : '{_input_name}'  shape={ort_session.get_inputs()[0].shape}")
+
+# ============================================================
+# 6. TRANSFORM PIPELINE  (khớp đúng val pipeline v7)
+# ============================================================
+# Thứ tự bắt buộc:
+#   Resize(int) → AGC → CenterCrop(img_size) → ToTensor → Normalize
+#
+# - Resize(int): giữ aspect ratio, resize cạnh ngắn
+# - AGC trước CenterCrop: đo sáng toàn bộ ảnh (không bị bias bởi crop)
+# - CenterCrop: lấy vùng trung tâm (giống val transform train)
+# ============================================================
+
+_MEAN = [0.485, 0.456, 0.406]
+_STD  = [0.229, 0.224, 0.225]
+
+_val_resize = int(IMG_SIZE * 1.15)   # resize nhẹ trước CenterCrop
+
+tf_val = transforms.Compose([
+    transforms.Resize(_val_resize),        # int → giữ aspect ratio
+    agc,                                   # AGC trước crop
+    transforms.CenterCrop(IMG_SIZE),       # crop trung tâm
+    transforms.ToTensor(),
+    transforms.Normalize(_MEAN, _STD),
+])
+
+# TTA: thêm margin rộng hơn + random crop + flip
+_tta_resize = int(IMG_SIZE * 1.25)
+tf_tta_list = [
+    transforms.Compose([
+        transforms.Resize(_tta_resize),
+        agc,
+        transforms.CenterCrop(IMG_SIZE),
+        transforms.RandomHorizontalFlip(p=1.0),
         transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406], 
-            std=[0.229, 0.224, 0.225]
-        )
-    ])
+        transforms.Normalize(_MEAN, _STD),
+    ]),
+    transforms.Compose([
+        transforms.Resize(_tta_resize),
+        agc,
+        transforms.RandomCrop(IMG_SIZE),
+        transforms.ToTensor(),
+        transforms.Normalize(_MEAN, _STD),
+    ]),
+]
+
+# ============================================================
+# 7. ONNX INFERENCE
+# ============================================================
+
+def run_inference(pil_img: Image.Image, n_tta: int = 1):
+    """
+    Chạy inference qua ONNX Runtime với tùy chọn TTA.
+
+    Args:
+        pil_img : PIL Image (RGB)
+        n_tta   : 1 = tắt TTA (nhanh nhất); 3 = bật 3 passes
+
+    Returns:
+        (predicted_class, confidence, obj_score, probs_np, gamma_used)
+    """
+    # Pass gốc
+    tensors = [tf_val(pil_img).unsqueeze(0).numpy()]
+
+    # TTA passes (nếu có)
+    if n_tta > 1:
+        for tf in tf_tta_list[:n_tta - 1]:
+            tensors.append(tf(pil_img).unsqueeze(0).numpy())
+
+    n_cls     = len(CLASS_NAMES)
+    probs_acc = np.zeros(n_cls, dtype=np.float32)
+    obj_acc   = 0.0
+
+    for t in tensors:
+        outputs   = ort_session.run([_out_logits, _out_obj], {_input_name: t})
+        logits_np = outputs[0][0]   # (n_classes,)
+        obj_np    = outputs[1][0]   # (1,)
+
+        # Softmax thủ công
+        e = np.exp(logits_np - logits_np.max())
+        probs_acc += (e / e.sum())
+
+        # Sigmoid objectness
+        obj_acc += float(1.0 / (1.0 + np.exp(-obj_np[0])))
+
+    probs_acc /= len(tensors)
+    obj_acc   /= len(tensors)
+
+    idx          = int(probs_acc.argmax())
+    conf         = float(probs_acc[idx])
+    predicted    = normalize_class_name(CLASS_NAMES[idx])
+    gamma_used   = agc.get_last_gamma()
+
+    return predicted, conf, obj_acc, probs_acc, gamma_used
 
 
-def generate_gradcam(model, input_tensor, class_idx):
-    """Generate GradCAM heatmap to visualize where the model is looking"""
-    model.eval()
-    
-    # Hook to capture feature maps and gradients
-    feature_maps = []
-    gradients = []
-    
-    def forward_hook(module, input, output):
-        feature_maps.append(output.detach())
-    
-    def backward_hook(module, grad_input, grad_output):
-        gradients.append(grad_output[0].detach())
-    
-    # Register hooks on the last conv layer
-    last_conv = model.features[-1]
-    fwd_handle = last_conv.register_forward_hook(forward_hook)
-    bwd_handle = last_conv.register_full_backward_hook(backward_hook)
-    
-    # Forward pass
-    input_tensor.requires_grad_(True)
-    class_logits, _, _ = model(input_tensor)
-    
-    # Backward pass for target class
-    model.zero_grad()
-    one_hot = torch.zeros_like(class_logits)
-    one_hot[0, class_idx] = 1
-    class_logits.backward(gradient=one_hot, retain_graph=True)
-    
-    # Remove hooks
-    fwd_handle.remove()
-    bwd_handle.remove()
-    
-    if not gradients or not feature_maps:
-        return None
-    
-    # Compute GradCAM
-    grads = gradients[0]
-    fmaps = feature_maps[0]
-    weights = torch.mean(grads, dim=[2, 3], keepdim=True)
-    cam = torch.sum(weights * fmaps, dim=1, keepdim=True)
-    cam = torch.relu(cam)
-    
-    # Normalize
-    cam = cam.squeeze().numpy()
-    if cam.max() > 0:
-        cam = cam / cam.max()
-    
-    return cam
+# ============================================================
+# 8. BOUNDING BOX  (contour-based từ foreground, không cần GradCAM)
+# ============================================================
+# GradCAM yêu cầu backward pass PyTorch — không khả dụng với ONNX.
+# Thay thế: dùng saliency đơn giản từ threshold luminance để xác định
+# vùng đối tượng, đủ dùng cho visualization trong TestModel.
+# ============================================================
 
+def get_bbox_from_saliency(img_rgb: np.ndarray, threshold: float = 0.25):
+    """
+    Tìm bounding box đối tượng bằng cách threshold độ sáng.
+    Trả về (x, y, w, h) hoặc None nếu không tìm được.
+    """
+    gray = img_rgb.max(axis=2).astype(np.uint8)   # kênh V = max(R,G,B)
 
-def get_bounding_box_from_cam(cam, original_size, threshold=0.3):
-    """Extract bounding box from GradCAM heatmap"""
-    # Resize CAM to original image size
-    cam_resized = cv2.resize(cam, (original_size[0], original_size[1]))
-    
-    # Threshold
-    binary = (cam_resized > threshold).astype(np.uint8)
-    
-    # Find contours
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
+    # Đảo: vùng tối nền → trắng, đối tượng → đen (hoặc ngược lại tùy ảnh)
+    # Dùng Otsu để tự động threshold
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Morphology để loại noise
+    kernel  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN,  kernel, iterations=1)
+
+    contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
-    
-    # Get the largest contour
-    largest = max(contours, key=cv2.contourArea)
-    x, y, w, h = cv2.boundingRect(largest)
-    
-    # Add some padding (10%)
-    pad_x = int(w * 0.1)
-    pad_y = int(h * 0.1)
-    x = max(0, x - pad_x)
-    y = max(0, y - pad_y)
-    w = min(original_size[0] - x, w + 2 * pad_x)
-    h = min(original_size[1] - y, h + 2 * pad_y)
-    
-    return (x, y, w, h)
+
+    # Lọc contour nhỏ
+    h_img, w_img = gray.shape
+    min_area     = (h_img * w_img) * threshold * 0.1
+    valid        = [c for c in contours if cv2.contourArea(c) > min_area]
+    if not valid:
+        return None
+
+    largest        = max(valid, key=cv2.contourArea)
+    x, y, bw, bh   = cv2.boundingRect(largest)
+
+    # Padding 8%
+    pad_x = int(bw * 0.08)
+    pad_y = int(bh * 0.08)
+    x  = max(0, x - pad_x)
+    y  = max(0, y - pad_y)
+    bw = min(w_img - x, bw + 2 * pad_x)
+    bh = min(h_img - y, bh + 2 * pad_y)
+
+    return (x, y, bw, bh)
 
 
 def draw_detection_on_image(img_cv2, bbox, class_name, confidence, obj_score):
-    """Draw bounding box and labels on image"""
+    """Vẽ bounding box và label lên ảnh (BGR)."""
     result = img_cv2.copy()
-    
+
     if bbox is not None:
         x, y, w, h = bbox
-        
-        # Color based on confidence
-        if confidence > 0.8:
-            color = (0, 255, 100)  # Green
-        elif confidence > 0.5:
-            color = (0, 200, 255)  # Yellow
-        else:
-            color = (0, 100, 255)  # Orange
-        
-        # Draw bounding box
+        color = (0, 255, 100) if confidence > 0.8 else (
+                 (0, 200, 255) if confidence > 0.5 else (0, 100, 255))
+
         cv2.rectangle(result, (x, y), (x + w, y + h), color, 2)
-        
-        # Label background
-        label = f"{class_name}: {confidence*100:.1f}%"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.6
-        thickness = 2
-        (text_w, text_h), baseline = cv2.getTextSize(label, font, font_scale, thickness)
-        
-        # Draw label background
+
+        label        = f"{class_name}: {confidence*100:.1f}%"
+        font         = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale   = 0.6
+        thickness    = 2
+        (text_w, text_h), _ = cv2.getTextSize(label, font, font_scale, thickness)
+
         cv2.rectangle(result, (x, y - text_h - 10), (x + text_w + 8, y), color, -1)
         cv2.putText(result, label, (x + 4, y - 5), font, font_scale, (0, 0, 0), thickness)
-        
-        # Draw objectness score
-        obj_label = f"Obj: {obj_score*100:.0f}%"
-        cv2.putText(result, obj_label, (x + 4, y + h + 18), font, 0.45, color, 1)
-    
+
+        obj_label = f"Obj: {obj_score*100:.0f}%  γ={agc.get_last_gamma():.2f}"
+        cv2.putText(result, obj_label, (x + 4, y + h + 18),
+                    font, 0.40, color, 1, cv2.LINE_AA)
+
     return result
 
 
+# ============================================================
+# 9. CLASSIFY ALL IMAGES IN TestImage FOLDER
+# ============================================================
 
-def classify_images(model):
-    """Classify all images in TestImage folder using MobileNetV3"""
+N_TTA = 1   # 1 = tắt TTA (tối đa tốc độ); 3 = bật TTA
+
+def classify_images():
+    """Classify tất cả ảnh trong TestImage/ bằng ONNX + AGC pipeline."""
     if not os.path.exists(TEST_DIR):
-        print(f"⚠️ Test directory '{TEST_DIR}' not found!")
-        print(f"   Creating '{TEST_DIR}' folder...")
+        print(f"[WARN] '{TEST_DIR}' không tồn tại — đang tạo...")
         os.makedirs(TEST_DIR)
-        print(f"   Please add test images to '{TEST_DIR}' folder and refresh.")
         return [], 0
-    
-    # Get all image files
-    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
-    images = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(valid_extensions)]
-    
+
+    valid_ext = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
+    images    = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(valid_ext)]
+
     if not images:
-        print(f"⚠️ No images found in '{TEST_DIR}' folder!")
+        print(f"[WARN] Không có ảnh trong '{TEST_DIR}'")
         return [], 0
-    
-    print(f"📷 Found {len(images)} images to test")
-    results = []
-    transform = get_transform(IMG_SIZE)
-    
+
+    print(f"[INFO] Tìm thấy {len(images)} ảnh để test")
+    results    = []
     start_time = time.time()
-    
+
     for idx, img_name in enumerate(images):
         img_path = os.path.join(TEST_DIR, img_name)
-        
         try:
-            # Load original image
-            pil_img = Image.open(img_path).convert('RGB')
-            original_size = pil_img.size  # (width, height)
-            
-            # Transform for model input
-            input_tensor = transform(pil_img).unsqueeze(0)
-            
-            # Inference
-            with torch.no_grad():
-                class_logits, obj_score_raw, _ = model(input_tensor)
-            
-            # Get prediction
-            probabilities = torch.softmax(class_logits, dim=1)
-            confidence, predicted_idx = torch.max(probabilities, dim=1)
-            predicted_class = normalize_class_name(CLASS_NAMES[predicted_idx.item()])
-            confidence_val = confidence.item()
-            
-            # Objectness score (sigmoid for probability)
-            obj_score = torch.sigmoid(obj_score_raw).item()
-            
-            # Generate GradCAM and bounding box
-            input_for_cam = transform(pil_img).unsqueeze(0)
-            cam = generate_gradcam(model, input_for_cam, predicted_idx.item())
-            
-            bbox = None
-            if cam is not None and obj_score > 0.3:
-                bbox = get_bounding_box_from_cam(cam, original_size)
-            
-            # Draw detection on image
-            img_cv2 = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            
+            pil_img       = Image.open(img_path).convert('RGB')
+            original_size = pil_img.size   # (W, H)
+
+            # ── INFERENCE (ONNX + AGC + correct transform) ──────────
+            predicted_class, conf, obj_score, probs, gamma_used = \
+                run_inference(pil_img, n_tta=N_TTA)
+
+            # ── BOUNDING BOX (saliency-based) ────────────────────────
+            img_rgb  = np.array(pil_img, dtype=np.uint8)
+            bbox     = get_bbox_from_saliency(img_rgb) if obj_score > 0.3 else None
+
+            # ── DRAW ─────────────────────────────────────────────────
+            img_bgr  = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
             if bbox is not None:
-                result_img = draw_detection_on_image(img_cv2, bbox, predicted_class, confidence_val, obj_score)
+                result_img = draw_detection_on_image(img_bgr, bbox, predicted_class, conf, obj_score)
             else:
-                # No bounding box available, add label on top
-                result_img = img_cv2.copy()
-                label = f"{predicted_class}: {confidence_val*100:.1f}%"
-                cv2.putText(result_img, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 100), 2)
-            
-            # Convert to base64
-            result_img_rgb = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
-            img_pil_result = Image.fromarray(result_img_rgb)
-            img_pil_result.thumbnail((400, 400))
-            buffer = io.BytesIO()
-            img_pil_result.save(buffer, format='JPEG', quality=85)
-            base64_img = base64.b64encode(buffer.getvalue()).decode()
-            
-            # Determine actual class from filename
+                result_img = img_bgr.copy()
+                label = f"{predicted_class}: {conf*100:.1f}%  γ={gamma_used:.2f}"
+                cv2.putText(result_img, label, (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 100), 2)
+
+            # ── ENCODE BASE64 ─────────────────────────────────────────
+            result_rgb = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
+            pil_result = Image.fromarray(result_rgb)
+            pil_result.thumbnail((400, 400))
+            buf        = io.BytesIO()
+            pil_result.save(buf, format='JPEG', quality=85)
+            b64_img    = base64.b64encode(buf.getvalue()).decode()
+
+            # ── METADATA ─────────────────────────────────────────────
             actual_class = get_actual_class(img_name)
-            is_correct = predicted_class == actual_class if actual_class != "unknown" else False
-            
-            cat_info = get_waste_category(predicted_class)
-            
+            is_correct   = (predicted_class == actual_class) if actual_class != "unknown" else False
+            cat_info     = get_waste_category(predicted_class)
+
             results.append({
-                'image_b64': base64_img,
-                'actual': actual_class,
-                'predicted': predicted_class,
-                'confidence': confidence_val,
-                'obj_score': obj_score,
-                'correct': is_correct,
-                'has_bbox': bbox is not None,
-                'category': cat_info['category'],
-                'cat_icon': cat_info['icon'],
-                'cat_color': cat_info['color'],
-                'cat_bg': cat_info['bg'],
+                'image_b64':  b64_img,
+                'actual':     actual_class,
+                'predicted':  predicted_class,
+                'confidence': conf,
+                'obj_score':  obj_score,
+                'gamma':      gamma_used,
+                'correct':    is_correct,
+                'has_bbox':   bbox is not None,
+                'category':   cat_info['category'],
+                'cat_icon':   cat_info['icon'],
+                'cat_color':  cat_info['color'],
+                'cat_bg':     cat_info['bg'],
                 'cat_border': cat_info['border'],
             })
-            
-            status_icon = "✓" if is_correct else ("?" if actual_class == "unknown" else "✗")
-            print(f"  [{idx+1}/{len(images)}] {img_name}: {predicted_class} ({confidence_val*100:.1f}%) obj={obj_score:.2f} {status_icon}")
-            
+
+            status = "✓" if is_correct else ("?" if actual_class == "unknown" else "✗")
+            print(f"  [{idx+1}/{len(images)}] {img_name}: "
+                  f"{predicted_class} ({conf*100:.1f}%) "
+                  f"obj={obj_score:.2f} γ={gamma_used:.2f} {status}")
+
         except Exception as e:
-            print(f"❌ Error processing {img_name}: {e}")
-            import traceback
-            traceback.print_exc()
-            
-            # Fallback: show original image
+            print(f"[ERROR] {img_name}: {e}")
+            import traceback; traceback.print_exc()
             try:
-                fallback_img = Image.open(img_path).convert('RGB')
-                fallback_img.thumbnail((400, 400))
-                buffer = io.BytesIO()
-                fallback_img.save(buffer, format='JPEG', quality=85)
-                base64_img = base64.b64encode(buffer.getvalue()).decode()
+                fallback = Image.open(img_path).convert('RGB')
+                fallback.thumbnail((400, 400))
+                buf = io.BytesIO()
+                fallback.save(buf, format='JPEG', quality=85)
+                b64_img = base64.b64encode(buf.getvalue()).decode()
             except:
-                base64_img = ""
-            
+                b64_img = ""
+
             results.append({
-                'image_b64': base64_img,
-                'actual': get_actual_class(img_name),
+                'image_b64': b64_img,
+                'actual':    get_actual_class(img_name),
                 'predicted': "Error",
                 'confidence': None,
-                'obj_score': None,
-                'correct': False,
-                'has_bbox': False
+                'obj_score':  None,
+                'gamma':      None,
+                'correct':    False,
+                'has_bbox':   False,
+                'category':   'Unknown',
+                'cat_icon':   'help-circle',
+                'cat_color':  '#64748B',
+                'cat_bg':     'rgba(100,116,139,0.15)',
+                'cat_border': 'rgba(100,116,139,0.4)',
             })
-            
-    total_time = time.time() - start_time
-    avg_time = total_time / len(images) if images else 0
-    
+
+    avg_time = (time.time() - start_time) / max(len(images), 1)
     return results, avg_time
 
 
-def get_actual_class(filename):
-    """Extract actual class from filename and normalize to 7 dataset classes"""
-    filename_lower = filename.lower()
-    
-    # Mapping tên cũ trong filename → class mới
-    OLD_TO_NEW = {
-        'battery': 'Battery',
-        'biological': 'Biological',
-        'cardboard': 'Paper_Cardboard',
-        'paper': 'Paper_Cardboard',
-        'paper_cardboard': 'Paper_Cardboard',
-        'paper-cardboard': 'Paper_Cardboard',
-        'clothes': 'General_Waste',
-        'shoes': 'General_Waste',
-        'trash': 'General_Waste',
-        'glass': 'Glass',
-        'brown-glass': 'Glass',
-        'white-glass': 'Glass',
-        'green-glass': 'Glass',
-        'metal': 'Metal',
-        'plastic': 'Plastic',
-        'textiles': 'General_Waste',
-        'general_waste': 'General_Waste',
-    }
-    
-    for old_name, new_name in OLD_TO_NEW.items():
-        if old_name in filename_lower:
-            return new_name
-    return "unknown"
+# ============================================================
+# 10. FLASK APP
+# ============================================================
 
+app = Flask(__name__)
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -460,40 +542,12 @@ HTML_TEMPLATE = """
             darkMode: 'class',
             theme: {
                 extend: {
-                    fontFamily: {
-                        sans: ['Space Grotesk', 'sans-serif'],
-                    },
+                    fontFamily: { sans: ['Space Grotesk', 'sans-serif'] },
                     colors: {
-                        cyber: {
-                            50: '#f0fdfa',
-                            100: '#ccfbf1',
-                            200: '#99f6e4',
-                            300: '#5eead4',
-                            400: '#2dd4bf',
-                            500: '#14b8a6',
-                            600: '#0d9488',
-                            700: '#0f766e',
-                            800: '#115e59',
-                            900: '#134e4a',
-                            950: '#042f2e',
-                        },
-                        neon: {
-                            blue: '#00f3ff',
-                            purple: '#bc13fe',
-                            green: '#0aff00',
-                            red: '#ff003c',
-                        }
+                        cyber: { 400: '#2dd4bf', 500: '#14b8a6' },
+                        neon:  { blue: '#00f3ff', green: '#0aff00', red: '#ff003c' }
                     },
-                    animation: {
-                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                        'scan': 'scan 2s linear infinite',
-                    },
-                    keyframes: {
-                        scan: {
-                            '0%': { transform: 'translateY(-100%)' },
-                            '100%': { transform: 'translateY(100%)' },
-                        }
-                    }
+                    animation: { 'pulse-slow': 'pulse 3s cubic-bezier(0.4,0,0.6,1) infinite' }
                 }
             }
         }
@@ -501,48 +555,34 @@ HTML_TEMPLATE = """
     <style>
         body {
             background-color: #050505;
-            background-image: 
+            background-image:
                 radial-gradient(circle at 50% 0%, #1a1a2e 0%, transparent 60%),
-                linear-gradient(rgba(0, 243, 255, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 243, 255, 0.03) 1px, transparent 1px);
+                linear-gradient(rgba(0,243,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,243,255,0.03) 1px, transparent 1px);
             background-size: 100% 100%, 40px 40px, 40px 40px;
         }
         .glass-panel {
-            background: rgba(10, 10, 15, 0.6);
+            background: rgba(10,10,15,0.6);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 8px 32px 0 rgba(0,0,0,0.37);
         }
-        .text-glow {
-            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
-        }
+        .text-glow { text-shadow: 0 0 10px rgba(0,243,255,0.5); }
         .card-hover:hover {
             transform: translateY(-4px);
-            box-shadow: 0 0 20px rgba(0, 243, 255, 0.15);
-            border-color: rgba(0, 243, 255, 0.4);
+            box-shadow: 0 0 20px rgba(0,243,255,0.15);
+            border-color: rgba(0,243,255,0.4);
         }
-        
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #0a0a0f; 
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #334155; 
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #475569; 
-        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0a0a0f; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
     </style>
 </head>
 <body class="text-slate-300 min-h-screen p-6">
 
     <!-- Header -->
-    <header class="max-w-7xl mx-auto mb-10 flex flex-col md:flex-row justify-between items-center gap-6 animate-fade-in-down">
+    <header class="max-w-7xl mx-auto mb-10 flex flex-col md:flex-row justify-between items-center gap-6">
         <div class="flex items-center gap-4">
             <div class="relative w-12 h-12 flex items-center justify-center rounded-xl bg-slate-900 border border-cyber-500/30 shadow-[0_0_15px_rgba(45,212,191,0.2)]">
                 <i data-lucide="cpu" class="w-6 h-6 text-cyber-400"></i>
@@ -550,10 +590,9 @@ HTML_TEMPLATE = """
             </div>
             <div>
                 <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-cyan-200 to-cyan-500 tracking-tight">S.I.G.M.A.</h1>
-                <p class="text-xs font-mono text-cyan-500/70 tracking-widest uppercase">MobileNetV3 + GradCAM Detection v2.0</p>
+                <p class="text-xs font-mono text-cyan-500/70 tracking-widest uppercase">ONNX Runtime + Adaptive Gamma v3.0</p>
             </div>
         </div>
-        
         <div class="flex gap-4">
             <div class="glass-panel px-6 py-3 rounded-lg flex flex-col items-center min-w-[140px]">
                 <span class="text-xs text-slate-500 font-mono uppercase tracking-wider mb-1">Total Images</span>
@@ -561,90 +600,69 @@ HTML_TEMPLATE = """
             </div>
             <div class="glass-panel px-6 py-3 rounded-lg flex flex-col items-center min-w-[140px] relative overflow-hidden">
                 <span class="text-xs text-slate-500 font-mono uppercase tracking-wider mb-1">Accuracy</span>
-                <span class="text-2xl font-bold {{ 'text-neon-green' if accuracy >= 90 else ('text-yellow-400' if accuracy >= 70 else 'text-neon-red') }} text-glow">
+                <span class="text-2xl font-bold {{ 'text-green-400' if accuracy >= 90 else ('text-yellow-400' if accuracy >= 70 else 'text-red-400') }} text-glow">
                     {{ "%.1f"|format(accuracy) }}%
                 </span>
-                
-                <!-- Progress bar background -->
                 <div class="absolute bottom-0 left-0 h-1 bg-slate-800 w-full">
-                    <div class="h-full {{ 'bg-neon-green' if accuracy >= 90 else ('bg-yellow-400' if accuracy >= 70 else 'bg-neon-red') }}" style="width: {{ accuracy }}%"></div>
+                    <div class="h-full {{ 'bg-green-400' if accuracy >= 90 else ('bg-yellow-400' if accuracy >= 70 else 'bg-red-400') }}" style="width: {{ accuracy }}%"></div>
                 </div>
             </div>
-             <div class="glass-panel px-6 py-3 rounded-lg flex flex-col items-center min-w-[140px]">
+            <div class="glass-panel px-6 py-3 rounded-lg flex flex-col items-center min-w-[140px]">
                 <span class="text-xs text-slate-500 font-mono uppercase tracking-wider mb-1">Latency</span>
                 <span class="text-2xl font-bold text-cyan-300">{{ "%.0f"|format(avg_time * 1000) }}<span class="text-sm font-normal text-slate-500 ml-1">ms</span></span>
             </div>
         </div>
     </header>
 
-    <!-- Controls & Legend -->
+    <!-- Controls -->
     <div class="max-w-7xl mx-auto mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
-        
-        <!-- Filter Tabs -->
-        <div class="glass-panel p-1.5 rounded-lg flex gap-1" x-data="{ filter: 'all' }">
-            <button onclick="filterAnalysis('all')" id="btn-all" class="px-4 py-2 rounded-md text-sm font-medium transition-all bg-white/10 text-white shadow-sm border border-white/5">
-                All Results
+        <div class="glass-panel p-1.5 rounded-lg flex gap-1">
+            <button onclick="filterCards('all')"     id="btn-all"     class="px-4 py-2 rounded-md text-sm font-medium transition-all bg-white/10 text-white shadow-sm border border-white/5">All</button>
+            <button onclick="filterCards('correct')" id="btn-correct" class="px-4 py-2 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
+                <span class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_8px_#4ade80]"></span> Correct</span>
             </button>
-            <button onclick="filterAnalysis('correct')" id="btn-correct" class="px-4 py-2 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
-                <span class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-neon-green shadow-[0_0_8px_#0aff00]"></span> Correct
-                </span>
-            </button>
-            <button onclick="filterAnalysis('wrong')" id="btn-wrong" class="px-4 py-2 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
-                <span class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-neon-red shadow-[0_0_8px_#ff003c]"></span> Errors
-                </span>
+            <button onclick="filterCards('wrong')"   id="btn-wrong"   class="px-4 py-2 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5">
+                <span class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-red-400 shadow-[0_0_8px_#f87171]"></span> Errors</span>
             </button>
         </div>
-
-        <!-- Legend -->
         <div class="flex items-center gap-6 text-xs text-slate-500 font-mono">
-            <div class="flex items-center gap-2">
-                <div class="w-2 h-2 bg-neon-green rounded-full shadow-[0_0_5px_#0aff00]"></div> Match
-            </div>
-            <div class="flex items-center gap-2">
-                <div class="w-2 h-2 bg-neon-red rounded-full shadow-[0_0_5px_#ff003c]"></div> Mismatch
-            </div>
-            <div class="flex items-center gap-2">
-                <div class="w-2 h-2 bg-yellow-500 rounded-full shadow-[0_0_5px_#eab308]"></div> Unknown Label
-            </div>
-            <div class="flex items-center gap-2">
-                <div class="w-3 h-3 border border-cyan-400 rounded-sm"></div> BBox (GradCAM)
-            </div>
+            <div class="flex items-center gap-2"><div class="w-2 h-2 bg-green-400 rounded-full"></div> Match</div>
+            <div class="flex items-center gap-2"><div class="w-2 h-2 bg-red-400 rounded-full"></div> Mismatch</div>
+            <div class="flex items-center gap-2"><div class="w-2 h-2 bg-yellow-400 rounded-full"></div> Unknown</div>
+            <div class="flex items-center gap-2"><span class="text-cyan-400 font-bold">γ</span> AGC gamma</div>
         </div>
     </div>
 
     <!-- Grid -->
     <div class="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5 pb-20">
         {% for r in results %}
-        <div class="card-hover glass-panel rounded-xl overflow-hidden transition-all duration-300 group relative result-card" data-status="{{ 'correct' if r.correct else ('unknown' if r.actual == 'unknown' else 'wrong') }}">
-            
-            <!-- Image Container -->
+        <div class="card-hover glass-panel rounded-xl overflow-hidden transition-all duration-300 group relative result-card"
+             data-status="{{ 'correct' if r.correct else ('unknown' if r.actual == 'unknown' else 'wrong') }}">
+
+            <!-- Image -->
             <div class="relative aspect-square overflow-hidden bg-slate-900">
-                <img src="data:image/jpeg;base64,{{ r.image_b64 }}" alt="{{ r.actual }}" 
+                <img src="data:image/jpeg;base64,{{ r.image_b64 }}" alt="{{ r.actual }}"
                      class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110">
-                
-                <!-- Overlay Gradient -->
                 <div class="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-transparent to-transparent opacity-60"></div>
-                
-                <!-- Status Badge -->
+
+                <!-- Status badge -->
                 <div class="absolute top-3 right-3">
                     {% if r.correct %}
-                        <div class="bg-neon-green/20 backdrop-blur-md border border-neon-green/50 text-neon-green p-1.5 rounded-lg shadow-[0_0_10px_rgba(10,255,0,0.2)]">
+                        <div class="bg-green-500/20 backdrop-blur-md border border-green-500/50 text-green-400 p-1.5 rounded-lg">
                             <i data-lucide="check" class="w-3.5 h-3.5"></i>
                         </div>
                     {% elif r.actual == 'unknown' %}
-                        <div class="bg-yellow-500/20 backdrop-blur-md border border-yellow-500/50 text-yellow-500 p-1.5 rounded-lg">
+                        <div class="bg-yellow-500/20 backdrop-blur-md border border-yellow-500/50 text-yellow-400 p-1.5 rounded-lg">
                             <i data-lucide="help-circle" class="w-3.5 h-3.5"></i>
                         </div>
                     {% else %}
-                        <div class="bg-neon-red/20 backdrop-blur-md border border-neon-red/50 text-neon-red p-1.5 rounded-lg shadow-[0_0_10px_rgba(255,0,60,0.2)]">
+                        <div class="bg-red-500/20 backdrop-blur-md border border-red-500/50 text-red-400 p-1.5 rounded-lg">
                             <i data-lucide="x" class="w-3.5 h-3.5"></i>
                         </div>
                     {% endif %}
                 </div>
 
-                <!-- Confidence Badge -->
+                <!-- Confidence -->
                 {% if r.confidence %}
                 <div class="absolute top-3 left-3">
                     <div class="px-2 py-1 rounded bg-black/60 backdrop-blur-sm text-[10px] font-mono text-cyan-300 border border-cyan-500/30">
@@ -653,39 +671,37 @@ HTML_TEMPLATE = """
                 </div>
                 {% endif %}
 
-                <!-- BBox indicator -->
-                {% if r.has_bbox %}
-                <div class="absolute bottom-3 left-3">
-                    <div class="px-2 py-1 rounded bg-cyan-500/20 backdrop-blur-sm text-[9px] font-mono text-cyan-300 border border-cyan-400/40 flex items-center gap-1">
-                        <i data-lucide="scan" class="w-2.5 h-2.5"></i> DETECTED
+                <!-- BBox / Gamma badges -->
+                <div class="absolute bottom-3 left-3 flex flex-col gap-1">
+                    {% if r.has_bbox %}
+                    <div class="px-2 py-1 rounded bg-cyan-500/20 text-[9px] font-mono text-cyan-300 border border-cyan-400/40 flex items-center gap-1">
+                        <i data-lucide="scan" class="w-2.5 h-2.5"></i> BBOX
                     </div>
+                    {% endif %}
+                    {% if r.gamma %}
+                    <div class="px-2 py-1 rounded bg-yellow-500/20 text-[9px] font-mono text-yellow-300 border border-yellow-400/30">
+                        γ={{ "%.2f"|format(r.gamma) }}
+                    </div>
+                    {% endif %}
                 </div>
-                {% endif %}
             </div>
 
             <!-- Content -->
             <div class="p-4 relative">
-                <!-- Scan Line Effect (Hover) -->
                 <div class="absolute top-0 left-0 w-full h-[1px] bg-cyan-400/50 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
-
                 <div class="mb-3">
                     <p class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-0.5">Prediction</p>
-                    <div class="text-base font-bold text-white truncate flex items-center gap-2">
-                        {{ r.predicted if r.predicted else 'No Detection' }}
-                    </div>
+                    <div class="text-base font-bold text-white truncate">{{ r.predicted if r.predicted else 'No Detection' }}</div>
                 </div>
-
-                <!-- Category Badge -->
                 {% if r.category %}
                 <div class="mb-3 flex items-center gap-1.5">
-                    <div class="px-2 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1" 
+                    <div class="px-2 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1"
                          style="background: {{ r.cat_bg }}; border: 1px solid {{ r.cat_border }}; color: {{ r.cat_color }}">
                         <i data-lucide="{{ r.cat_icon }}" class="w-2.5 h-2.5"></i>
                         {{ r.category }}
                     </div>
                 </div>
                 {% endif %}
-
                 <div class="flex items-center justify-between pt-3 border-t border-white/5">
                     <div class="flex flex-col">
                         <span class="text-[9px] text-slate-500 uppercase tracking-wider">Actual</span>
@@ -693,21 +709,17 @@ HTML_TEMPLATE = """
                             {{ r.actual }}
                         </span>
                     </div>
-                    <div class="text-[9px] font-mono text-slate-600">
-                        #{{ loop.index }}
-                    </div>
+                    <div class="text-[9px] font-mono text-slate-600">#{{ loop.index }}</div>
                 </div>
             </div>
-            
-            <!-- Glow Effect on wrong predictions -->
+
             {% if not r.correct and r.actual != 'unknown' %}
-            <div class="absolute inset-0 border border-neon-red/30 pointer-events-none rounded-xl"></div>
+            <div class="absolute inset-0 border border-red-500/30 pointer-events-none rounded-xl"></div>
             {% endif %}
         </div>
         {% endfor %}
     </div>
 
-    <!-- Empty State -->
     {% if not results %}
     <div class="max-w-2xl mx-auto text-center py-20">
         <div class="w-20 h-20 mx-auto bg-slate-800/50 rounded-full flex items-center justify-center mb-6">
@@ -719,40 +731,32 @@ HTML_TEMPLATE = """
     {% endif %}
 
     <footer class="max-w-7xl mx-auto text-center text-slate-600 text-xs py-8 border-t border-slate-800/50">
-        <p>POWERED BY MobileNetV3 + GradCAM &bull; WASTE DETECTOR MODEL</p>
+        <p>POWERED BY ONNX Runtime + Adaptive Gamma Correction + MobileNetV3 | WASTE DETECTOR v3.0</p>
     </footer>
 
     <script>
-        // Init Icons
         lucide.createIcons();
 
-        // Filter Logic
-        function filterAnalysis(status) {
-            const cards = document.querySelectorAll('.result-card');
+        function filterCards(status) {
+            const cards   = document.querySelectorAll('.result-card');
             const buttons = ['all', 'correct', 'wrong'];
-            
-            // Update Buttons
             buttons.forEach(btn => {
                 const el = document.getElementById('btn-' + btn);
                 if (btn === status) {
-                    el.classList.remove('text-slate-400', 'hover:text-white', 'hover:bg-white/5', 'bg-transparent');
                     el.classList.add('bg-white/10', 'text-white', 'shadow-sm', 'border', 'border-white/5');
+                    el.classList.remove('text-slate-400', 'hover:text-white', 'hover:bg-white/5');
                 } else {
-                    el.classList.add('text-slate-400', 'hover:text-white', 'hover:bg-white/5', 'bg-transparent');
                     el.classList.remove('bg-white/10', 'text-white', 'shadow-sm', 'border', 'border-white/5');
+                    el.classList.add('text-slate-400', 'hover:text-white', 'hover:bg-white/5');
                 }
             });
-
-            // Filter Grid
             cards.forEach(card => {
-                const cardStatus = card.getAttribute('data-status');
-                if (status === 'all') {
-                    card.style.display = 'block';
-                } else if (status === 'correct') {
-                    card.style.display = cardStatus === 'correct' ? 'block' : 'none';
-                } else if (status === 'wrong') {
-                    card.style.display = (cardStatus === 'wrong' || cardStatus === 'unknown') ? 'block' : 'none';
-                }
+                const s = card.getAttribute('data-status');
+                card.style.display = (
+                    status === 'all'     ? 'block' :
+                    status === 'correct' ? (s === 'correct' ? 'block' : 'none') :
+                    (s === 'wrong' || s === 'unknown') ? 'block' : 'none'
+                );
             });
         }
     </script>
@@ -760,60 +764,49 @@ HTML_TEMPLATE = """
 </html>
 """
 
+
 @app.route('/')
 def index():
-    results, avg_time = classify_images(model)
-    
-    # Calculate accuracy (excluding unknown labels)
-    known_results = [r for r in results if r['actual'] != 'unknown']
-    correct = sum(1 for r in known_results if r['correct'])
-    total_known = len(known_results)
-    accuracy = (correct / total_known * 100) if total_known > 0 else 0
-    
+    results, avg_time = classify_images()
+
+    known     = [r for r in results if r['actual'] != 'unknown']
+    correct   = sum(1 for r in known if r['correct'])
+    accuracy  = (correct / len(known) * 100) if known else 0
+
     return render_template_string(
         HTML_TEMPLATE,
         results=results,
         correct=correct,
         total=len(results),
-        total_known=total_known,
+        total_known=len(known),
         accuracy=accuracy,
-        avg_time=avg_time
+        avg_time=avg_time,
     )
 
 
+# ============================================================
+# ENTRYPOINT
+# ============================================================
+
 if __name__ == "__main__":
     print("=" * 60)
-    print("🚀 S.I.G.M.A. EVALUATION CONSOLE STARTING...")
-    print("   Model: MobileNetV3 + GradCAM BBox Detection")
+    print("🚀 S.I.G.M.A. EVALUATION CONSOLE v3.0")
+    print("   Backend : ONNX Runtime (không dùng PyTorch inference)")
+    print("   Pipeline: AGC → Resize(int) → CenterCrop → ToTensor → Normalize")
+    print(f"  Model   : {ONNX_PATH}")
+    print(f"  Meta    : {META_PATH}")
+    print(f"  img_size: {IMG_SIZE}  |  AGC target: {AGC_TARGET}")
+    print(f"  Classes : {CLASS_NAMES}")
     print("=" * 60)
-    
-    # Load Model
-    if os.path.exists(MODEL_PATH):
-        try:
-            model = load_model(MODEL_PATH)
-        except Exception as e:
-            print(f"❌ Core Initialization Failed: {e}")
-            import traceback
-            traceback.print_exc()
-            exit(1)
-    else:
-        print(f"❌ Critical Error: Model file missing at {MODEL_PATH}")
-        print("   Please ensure 'best_model.pth' exists in Model/Train/outputs.")
-        exit(1)
-    
-    # Check test directory
+
     if not os.path.exists(TEST_DIR):
         os.makedirs(TEST_DIR)
-        print(f"\n📁 Initialized Data Buffer: {TEST_DIR}")
-        print(f"   -> Waiting for input data...")
+        print(f"\n📁 TestImage/ đã tạo tại: {TEST_DIR}")
+        print("   → Thêm ảnh vào đó rồi reload trang.")
     else:
-        images = [f for f in os.listdir(TEST_DIR) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))]
-        print(f"\n📁 Data Buffer Ready: {TEST_DIR}")
-        print(f"   -> {len(images)} samples detected")
-    
-    # Start Server
-    print("\n" + "=" * 60)
-    print("🌐 INTERFACE ONLINE")
-    print("👉 Access Console: http://localhost:8888")
-    print("=" * 60 + "\n")
+        imgs = [f for f in os.listdir(TEST_DIR)
+                if f.lower().endswith(('.jpg','.jpeg','.png','.bmp','.webp'))]
+        print(f"\n📁 TestImage/ sẵn sàng: {len(imgs)} ảnh")
+
+    print("\n🌐 http://localhost:8888\n")
     app.run(debug=True, port=8888, use_reloader=False)

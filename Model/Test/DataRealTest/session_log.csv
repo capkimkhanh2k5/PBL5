@@ -1,0 +1,3 @@
+timestamp_ms,filename,ai_class,final_class,correct,conf,obj,gamma
+1775188136306,General_Waste_1775188136306.jpg,Battery,General_Waste,0,0.3706,0.5238,1.770
+1775188436054,General_Waste_1775188436054.jpg,General_Waste,General_Waste,1,0.4162,0.5112,1.880
