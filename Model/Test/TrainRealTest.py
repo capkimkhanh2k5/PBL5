@@ -562,15 +562,15 @@ def draw_session_stats(canvas, stats, classes_list):
     total   = stats['total_reviewed']
     correct = stats['ai_correct']
     acc     = (correct / total * 100) if total > 0 else 0.0
-    panel_x = w - 220
+    panel_x = w - 100
 
-    cv2.rectangle(canvas, (panel_x - 8, h - 220), (w - 2, h - 2),
+    cv2.rectangle(canvas, (panel_x - 8, h - 100), (w - 2, h - 2),
                   (20, 20, 20), -1)
-    cv2.rectangle(canvas, (panel_x - 8, h - 220), (w - 2, h - 2),
+    cv2.rectangle(canvas, (panel_x - 8, h - 100), (w - 2, h - 2),
                   (60, 60, 60), 1)
 
     cv2.putText(canvas, "SESSION STATS",
-                (panel_x, h - 202), cv2.FONT_HERSHEY_SIMPLEX, 0.40,
+                (panel_x, h - 100), cv2.FONT_HERSHEY_SIMPLEX, 0.40,
                 (0, 200, 255), 1, cv2.LINE_AA)
     cv2.putText(canvas, f"Reviewed : {total}",
                 (panel_x, h - 185), cv2.FONT_HERSHEY_SIMPLEX, 0.38,
@@ -769,7 +769,7 @@ STATE_COOLDOWN  = "COOLDOWN"
 # 15. CAMERA & BACKGROUND SUBTRACTOR
 # ============================================================
 
-cap = cv2.VideoCapture(CAMERA_ID)
+cap = cv2.VideoCapture("http://192.168.4.54:4747/video")
 if not cap.isOpened():
     raise RuntimeError(f"[FATAL] Không mở được camera ID={CAMERA_ID}")
 
