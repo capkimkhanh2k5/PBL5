@@ -31,9 +31,6 @@ checkpoint
 *.swo
 .DS_Store
 
-# Test images
-TestImage/
-
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
