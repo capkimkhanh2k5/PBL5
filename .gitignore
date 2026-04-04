@@ -9,18 +9,6 @@ env/
 .venv/
 ENV/
 
-# Model files
-*.keras
-*.h5
-*.hdf5
-*.pb
-*.ckpt*
-
-# TensorFlow/Keras
-logs/
-*.tflite
-checkpoint
-
 # IDE VS Code
 .idea/
 .vscode/
@@ -30,10 +18,6 @@ checkpoint
 *.swp
 *.swo
 .DS_Store
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
 
 # Misc
 *.log
