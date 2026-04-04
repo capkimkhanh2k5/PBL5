@@ -69,9 +69,4 @@ mobileapp/android/local.properties
 # ====== POSTMAN ======
 postman/
 
-# Model weights (large files)
-*.pth
-*.onnx
-
-
 **/Key/**
