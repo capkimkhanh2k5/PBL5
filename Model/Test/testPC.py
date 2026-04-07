@@ -50,8 +50,8 @@ MODEL_DIR  = os.path.dirname(SCRIPT_DIR)
 # ============================================================
 
 CAMERA_ID  = 0
-ONNX_PATH  = os.path.join(MODEL_DIR, "Train", "outputs", "waste_detector.onnx")
-META_PATH  = os.path.join(MODEL_DIR, "Train", "outputs", "model_meta.json")
+ONNX_PATH  = os.path.join(MODEL_DIR, "Train", "outputs_v2", "waste_detector.onnx")
+META_PATH  = os.path.join(MODEL_DIR, "Train", "outputs_v2", "model_meta.json")
 IMG_SIZE   = 384                          # fallback nếu không đọc được meta
 
 # --- [PERF-2] TTA ---
