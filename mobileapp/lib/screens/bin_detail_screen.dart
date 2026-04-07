@@ -174,7 +174,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                   const SizedBox(height: 10),
                   const Text(
                     
-                    "Mức đầy thùng rác",
+                    "Bin Fill Level",
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w800,
@@ -193,7 +193,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      "Thành phần rác",
+                      "Waste Composition",
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
@@ -211,22 +211,22 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                     physics: const NeverScrollableScrollPhysics(),
                     children: [
                       WasteMiniCard(
-                        title: "Rác hữu cơ",
+                        title: "Organic Waste",
                         percent: d.fillOrganic / 100,
                         color: const Color(0xFF2D8CFF),
                       ),
                       WasteMiniCard(
-                        title: "Nhựa & giấy",
+                        title: "Plastic & Paper",
                         percent: d.fillRecycle / 100,
                         color: const Color(0xFFF6C000),
                       ),
                       WasteMiniCard(
-                        title: "Kim loại",
+                        title: "Metal",
                         percent: d.fillNonRecycle / 100,
                         color: const Color(0xFFFF8A00),
                       ),
                       WasteMiniCard(
-                        title: "Rác khác",
+                        title: "Other Waste",
                         percent: d.fillHazardous / 100,
                         color: const Color(0xFFFF3B30),
                       ),
@@ -235,7 +235,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                   
                   const SizedBox(height: 14),
                   _primaryButton(
-                    text: 'Xem lịch sử',
+                    text: 'View History',
                     onTap: () {
                       Navigator.push(
                         context,
@@ -254,7 +254,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Gợi ý',
+                    'Suggestion',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -263,17 +263,17 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Nên đổ khi đạt: ${d.suggestDumpAt}%',
+                    'Recommended to empty at: ${d.suggestDumpAt}%',
                     style: const TextStyle(fontSize: 14, color: Colors.black87),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Dự kiến đầy trong: ~ ${d.etaDays.toStringAsFixed(1)} ngày',
+                    'Estimated to be full in: ~ ${d.etaDays.toStringAsFixed(1)} ngày',
                     style: const TextStyle(fontSize: 14, color: Colors.black87),
                   ),
                   const SizedBox(height: 14),
                   _primaryButton(
-                    text: 'Xem vị trí thùng',
+                    text: 'View Bin Location',
                     onTap: () {
                       Navigator.push(
                         context,
@@ -362,7 +362,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                 ),
                 const SizedBox(height: 2),
                 const Text(
-                  'Độ đầy',
+                  'Fill Level',
                   style: TextStyle(color: Colors.black54),
                 ),
               ],

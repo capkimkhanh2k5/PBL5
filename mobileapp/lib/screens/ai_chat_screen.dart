@@ -57,15 +57,6 @@ class _AiChatScreenState extends State<AiChatScreen> {
                       else
                         const SizedBox(width: 36),
                       const Spacer(),
-                      _circleIcon(
-                        icon: Icons.help_outline,
-                        onTap: () {},
-                      ),
-                      const SizedBox(width: 10),
-                      _circleIcon(
-                        icon: Icons.settings,
-                        onTap: () {},
-                      ),
                     ],
                   ),
                 ),

@@ -74,6 +74,28 @@ class AuthService {
     await _googleSignIn.signOut();
     await _auth.signOut();
   }
+ //Đổi mật khẩu
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _auth.currentUser;
+
+    if (user == null || user.email == null) {
+      throw FirebaseAuthException(
+        code: 'user-not-found',
+        message: 'No logged in user found.',
+      );
+    }
+
+    final credential = EmailAuthProvider.credential(
+      email: user.email!,
+      password: currentPassword,
+    );
+
+    await user.reauthenticateWithCredential(credential);
+    await user.updatePassword(newPassword);
+  }
 
   // Helper: chuyển FirebaseAuthException
   static String getErrorMessage(FirebaseAuthException e) {

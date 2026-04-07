@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'bin_detail_screen.dart';
 import 'ai_chat_screen.dart';
+import 'settings_screen.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 
@@ -160,7 +161,12 @@ class HomeScreenState extends State<HomeScreen> {
       return e.id.toLowerCase().contains(q);
     }).toList();
 
-    return Scaffold(
+    return GestureDetector(
+        behavior: HitTestBehavior.opaque, // 👈 QUAN TRỌNG
+        onTap: () {
+          FocusScope.of(context).unfocus();
+        },
+        child: Scaffold(
       backgroundColor: bg,
       body: SafeArea(
         child: SingleChildScrollView(
@@ -190,6 +196,7 @@ class HomeScreenState extends State<HomeScreen> {
                         right: 16,
                         child: Row(
                           children: [
+                            // LEFT: Greeting
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -205,100 +212,57 @@ class HomeScreenState extends State<HomeScreen> {
                                   const SizedBox(height: 6),
                                   Row(
                                     children: [
-                                      Icon(Icons.cloud_outlined, color: Colors.white.withOpacity(0.9), size: 18),
+                                      Icon(Icons.cloud_outlined,
+                                          color: Colors.white.withOpacity(0.9), size: 18),
                                       const SizedBox(width: 6),
                                       Text(
                                         "Sun Cloudy 22°",
-                                        style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 15),
+                                        style: TextStyle(
+                                          color: Colors.white.withOpacity(0.9),
+                                          fontSize: 15,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ],
                               ),
                             ),
+
                             const SizedBox(width: 12),
-                            InkWell(
-                              borderRadius: BorderRadius.circular(20),
-                              onTap: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) {
-                                    return AlertDialog(
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(16),
+
+                            // RIGHT: SETTINGS + LOGOUT
+                            Row(
+                              children: [
+                                // SETTINGS
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(20),
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => const SettingsScreen(),
                                       ),
-                                      title: const Text(
-                                        "Logout",
-                                        style: TextStyle(fontWeight: FontWeight.bold),
-                                      ),
-                                      content: const Padding(
-                                        padding: EdgeInsets.only(top: 10),
-                                        child: Text(
-                                          "Are you sure you want to log out?",
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w500,
-                                            color: Colors.black87,
-                                          ),
-                                        ),
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () {
-                                            Navigator.pop(context); // close dialog
-                                          },
-                                          child: const Text("Cancel",
-                                            style: TextStyle(
-                                              fontSize: 17,
-                                              color: Colors.black,
-                                            ),
-                                          ),
-                                        ),
-                                        TextButton(
-                                          onPressed: () async {
-                                            Navigator.pop(context);
-                                            await _authService.signOut();
-                                          },
-                                          child: const Text(
-                                            "Logout",
-                                            style: TextStyle(
-                                              fontSize: 17,
-                                              color: Color(0xFF2F6B3D),
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
                                     );
                                   },
-                                );
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: Colors.white.withOpacity(0.4)),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.logout, color: Colors.white, size: 18),
-                                    const SizedBox(width: 6),
-                                    const Text(
-                                      "Logout",
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
-                                      ),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: Colors.white.withOpacity(0.4)),
                                     ),
-                                  ],
+                                    child: const Icon(Icons.settings,
+                                        color: Colors.white, size: 18),
+                                  ),
                                 ),
-                              ),
+
+                                const SizedBox(width: 8),
+                              ],
                             ),
                           ],
                         ),
                       ),
+
 
                       // Search bar (gõ được)
                       Positioned(
@@ -374,6 +338,7 @@ class HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+    )
     );
   }
 }
