@@ -1,0 +1,16 @@
+{
+  "classes": [
+    "Battery",
+    "Biological",
+    "General_Waste",
+    "Glass",
+    "Metal",
+    "Paper_Cardboard",
+    "Plastic"
+  ],
+  "img_size": 384,
+  "agc_target": 128,
+  "agc_gamma_min": 0.4,
+  "agc_gamma_max": 3.0,
+  "phase": "phase6_realworld"
+}
