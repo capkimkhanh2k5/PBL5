@@ -27,54 +27,52 @@ Database Description
 1. users
  Lưu thông tin người dùng
 
-email: email đăng nhập
-username: tên hiển thị
-role: quyền (USER / ADMIN)
-avatar_url: ảnh đại diện
-created_at: thời gian tạo
+- email: email đăng nhập
+- username: tên hiển thị
+- role: quyền (USER / ADMIN)
+- avatar_url: ảnh đại diện
+- created_at: thời gian tạo
 
 2. bins_metadata
   Lưu thông tin thùng rác: Hiển thị bản đồ, thời gian
 
-id: mã thùng (bin_001…)
-name: tên thùng
-location_description: vị trí (VD: Sảnh 1)
-latitude: vĩ độ
-longitude: kinh độ
-installed_at: thời gian lắp đặt
+- id: mã thùng (bin_001…)
+- name: tên thùng
+- location_description: vị trí (VD: Sảnh 1)
+- latitude: vĩ độ
+- longitude: kinh độ
+- installed_at: thời gian lắp đặt
 
 3. bin_realtime_status
 
  Trạng thái hiện tại của thùng (real-time): mức đầy
 
-batteryLevel: pin
-temperature: nhiệt độ
-fillOrganic: mức đầy rác hữu cơ
-fillRecycle: mức đầy rác tái chế
-fillNonRecycle: mức đầy rác không tái chế
-fillHazardous: mức đầy rác nguy hại
-status: trạng thái (OK / FULL / UNKNOWN)
-lastUpdated: thời gian cập nhật
+- batteryLevel: pin
+- temperature: nhiệt độ
+- fillOrganic: mức đầy rác hữu cơ
+- fillRecycle: mức đầy rác tái chế
+- fillNonRecycle: mức đầy rác không tái chế
+- fillHazardous: mức đầy rác nguy hại
+- status: trạng thái (OK / FULL / UNKNOWN)
+- lastUpdated: thời gian cập nhật
 
 
 5. classification_logs
  Lịch sử phân loại rác (AI)
 
-log_id: mã log
-bin_id: mã thùng
-image_url: ảnh đầu vào
-classification_result: kết quả (Organic / Recycle…)
-confidence_score: độ chính xác
-classified_at: thời gian phân loại
+- log_id: mã log
+- bin_id: mã thùng
+- image_url: ảnh đầu vào
+- classification_result: kết quả (Organic / Recycle…)
+- confidence_score: độ chính xác
+- classified_at: thời gian phân loại
 
 6. alerts
  Cảnh báo hệ thống, thông báo
 
-Fields:
-
-id: mã cảnh báo
-alert_type: loại cảnh báo (FULL_BIN…)
-bin_id: mã thùng
-created_at: thời gian tạo
-fill_levels_at_alert: mức rác khi cảnh báo
-fill_levels_at_resolve: mức rác khi xử lý (nếu có)
+- id: mã cảnh báo
+-alert_type: loại cảnh báo (FULL_BIN…)
+- bin_id: mã thùng
+- created_at: thời gian tạo
+- fill_levels_at_alert: mức rác khi cảnh báo
+- fill_levels_at_resolve: mức rác khi xử lý (nếu có)
