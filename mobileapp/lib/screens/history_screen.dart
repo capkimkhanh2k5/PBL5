@@ -15,6 +15,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   bool _loading = true;
   String? _error;
   List<TrashHistoryItem> _items = const [];
+  String _selectedType = 'all';
 
   @override
   void initState() {
@@ -54,15 +55,36 @@ class _HistoryScreenState extends State<HistoryScreen> {
       return double.tryParse(value?.toString() ?? '');
     }
 
+  List<TrashHistoryItem> get _filteredItems {
+    if (_selectedType == 'all') return _items;
+
+    return _items.where((item) {
+      final type = item.title.toLowerCase().trim();
+
+      switch (_selectedType) {
+        case 'organic':
+          return type == 'organic';
+        case 'recycle':
+          return type == 'recycle';
+        case 'non_recycle':
+          return type == 'nonrecycle' || type == 'non_recycle';
+        case 'hazardous':
+          return type == 'hazardous';
+        default:
+          return true;
+      }
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFEAF6EE), // nền mới
+      backgroundColor: const Color(0xFFEAF6EE),
 
       appBar: AppBar(
         backgroundColor: const Color(0xFF2E7D32), 
         elevation: 0,
-        foregroundColor: Colors.white, // 
+        foregroundColor: Colors.white,
         title: Text(
           'Trash history - ${widget.binId}',
           style: const TextStyle(
@@ -85,14 +107,60 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     ],
                   ),
                 )
-              : _items.isEmpty
-                  ? const Center(child: Text('No classification images yet.'))
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                      itemCount: _items.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 18),
-                      itemBuilder: (context, i) => _HistoryCard(item: _items[i]),
-                    ),
+          : Column(
+        children: [
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedType,
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(
+                    value: 'all',
+                    child: Text('All Waste Types'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'organic',
+                    child: Text('Organic Waste'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'recycle',
+                    child: Text('Recycle Waste'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'non_recycle',
+                    child: Text('Non Recycle Waste'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'hazardous',
+                    child: Text('Hazardous Waste'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _selectedType = value);
+                },
+              ),
+            ),
+          ),
+          Expanded(
+            child: _filteredItems.isEmpty
+                ? const Center(child: Text('No matching classification images.'))
+                : ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              itemCount: _filteredItems.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 18),
+              itemBuilder: (context, i) => _HistoryCard(item: _filteredItems[i]),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
