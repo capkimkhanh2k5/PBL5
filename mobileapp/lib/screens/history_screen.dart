@@ -187,15 +187,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
                 ),
                 PopupMenuItem<String>(
-                  value: 'Battery',
+                  value: 'hazardous',
                   padding: EdgeInsets.zero,
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    color: _selectedType == 'Battery'
+                    color: _selectedType == 'hazardous'
                         ? const Color(0xFFE8F5E9)
                         : Colors.white,
-                    child: const Text('Battery'),
+                    child: const Text('Hazardous Waste'),
                   ),
                 ),
               ],
