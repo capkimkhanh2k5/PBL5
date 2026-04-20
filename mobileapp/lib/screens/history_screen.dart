@@ -17,6 +17,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
   List<TrashHistoryItem> _items = const [];
   String _selectedType = 'all';
 
+  final Map<String, String> _labels = const {
+    'all': 'All Waste Types',
+    'organic': 'Organic Waste',
+    'recycle': 'Recycle Waste',
+    'non_recycle': 'Non Recycle Waste',
+    'hazardous': 'Hazardous Waste',
+  };
+
   @override
   void initState() {
     super.initState();
@@ -32,6 +40,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       final api = ApiService(authService: _authService);
       final logs = await api.getClassificationLogs(binId: widget.binId, limit: 30);
+      print('BACKEND DATA: $logs');
+
+      for (var e in logs) {
+        print('TYPE = ${e['classificationResult'] ?? e['classification_result']}');
+      }
       final items = logs
           .map((e) => TrashHistoryItem(
                 imageUrl: ((e['imageUrl'] ?? e['image_url']) ?? '').toString(),
@@ -107,60 +120,134 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     ],
                   ),
                 )
-          : Column(
+          : ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
+          // 🔽 Dropdown (filter) nằm trên cùng
           Container(
-            margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
+            margin: const EdgeInsets.only(bottom: 16),
+            child: PopupMenuButton<String>(
+              onSelected: (value) {
+                setState(() => _selectedType = value);
+              },
+              offset: const Offset(0, 56),
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedType,
-                isExpanded: true,
-                items: const [
-                  DropdownMenuItem(
-                    value: 'all',
-                    child: Text('All Waste Types'),
+              elevation: 6,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: Color(0xFFD9D9D9)),
+              ),
+              itemBuilder: (context) => [
+                PopupMenuItem<String>(
+                  value: 'all',
+                  padding: EdgeInsets.zero,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    color: _selectedType == 'all'
+                        ? const Color(0xFFE8F5E9)
+                        : Colors.white,
+                    child: const Text('All Waste Types'),
                   ),
-                  DropdownMenuItem(
-                    value: 'organic',
-                    child: Text('Organic Waste'),
+                ),
+                PopupMenuItem<String>(
+                  value: 'organic',
+                  padding: EdgeInsets.zero,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    color: _selectedType == 'organic'
+                        ? const Color(0xFFE8F5E9)
+                        : Colors.white,
+                    child: const Text('Organic Waste'),
                   ),
-                  DropdownMenuItem(
-                    value: 'recycle',
-                    child: Text('Recycle Waste'),
+                ),
+                PopupMenuItem<String>(
+                  value: 'recycle',
+                  padding: EdgeInsets.zero,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    color: _selectedType == 'recycle'
+                        ? const Color(0xFFE8F5E9)
+                        : Colors.white,
+                    child: const Text('Recycle Waste'),
                   ),
-                  DropdownMenuItem(
-                    value: 'non_recycle',
-                    child: Text('Non Recycle Waste'),
+                ),
+                PopupMenuItem<String>(
+                  value: 'non_recycle',
+                  padding: EdgeInsets.zero,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    color: _selectedType == 'non_recycle'
+                        ? const Color(0xFFE8F5E9)
+                        : Colors.white,
+                    child: const Text('Non Recycle Waste  '),
                   ),
-                  DropdownMenuItem(
-                    value: 'hazardous',
-                    child: Text('Hazardous Waste'),
+                ),
+                PopupMenuItem<String>(
+                  value: 'Battery',
+                  padding: EdgeInsets.zero,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    color: _selectedType == 'Battery'
+                        ? const Color(0xFFE8F5E9)
+                        : Colors.white,
+                    child: const Text('Battery'),
                   ),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => _selectedType = value);
-                },
+                ),
+              ],
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                width: MediaQuery.of(context).size.width * 0.51, // = padding ListView
+                child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFD9D9D9)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _labels[_selectedType]!,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const Icon(Icons.keyboard_arrow_down_rounded),
+                  ],
+                ),
+              ),
               ),
             ),
           ),
-          Expanded(
-            child: _filteredItems.isEmpty
-                ? const Center(child: Text('No matching classification images.'))
-                : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              itemCount: _filteredItems.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 18),
-              itemBuilder: (context, i) => _HistoryCard(item: _filteredItems[i]),
-            ),
           ),
+
+          // 🔽 Không có dữ liệu
+          if (_filteredItems.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 80),
+              child: Center(
+                child: Text(
+                  'No images for this type yet',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+              ),
+            ),
+
+          // 🔽 Có dữ liệu thì render list
+          ..._filteredItems.map((item) => Padding(
+            padding: const EdgeInsets.only(bottom: 18),
+            child: _HistoryCard(item: item),
+          )),
         ],
-      ),
+      )
     );
   }
 }
