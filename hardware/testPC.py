@@ -1,25 +1,41 @@
 """
-smart_trash_bin.py  —  v4.1 (ONNX + Arduino + Firebase Realtime DB)
+smart_trash_bin.py  —  v5.2 (ONNX + Arduino + Firebase + Cloudinary)
 =====================================================================
-THAY ĐỔI SO VỚI v4.0
+THAY ĐỔI SO VỚI v5.1
 ────────────────────────────────────────────────────────────────────
-[PIPELINE] Thêm cờ FULL_PIPELINE:
-           - True  → chạy đầy đủ: inference + Arduino + Firebase
-           - False → chỉ chạy inference + hiển thị (không cần phần cứng)
+[FIX]  fill_levels: FULL_PIPELINE=True → dùng read_fill_levels(arduino_serial)
+                    FULL_PIPELINE=False → dùng read_fill_levels_simulated()
 
-[REFACTOR] Tách logic Arduino và Firebase vào:
-           - Utils/arduinoUtil.py
-           - Utils/firebaseUtil.py
+[NEW]  Idle periodic update: nếu không có rác trong IDLE_UPDATE_INTERVAL_SEC
+       (mặc định 300s / 5 phút) kể từ lần phân loại cuối, tự động gọi
+       firebase_update_bin() để cập nhật trạng thái bin định kỳ.
+       Chỉ thực hiện khi state == WAITING để tránh xung đột pipeline.
 
-[FLOW]     LOCKED → (nếu FULL_PIPELINE) gửi Arduino command
-           → chờ "Hoan thanh" ACK → cập nhật Firebase
-           → COOLDOWN → WAITING
-           Nếu không FULL_PIPELINE: LOCKED → COOLDOWN trực tiếp
+[FIX]  last_classification_time được cập nhật trong _on_arduino_done()
+       để timer idle tính chính xác từ lúc xử lý xong.
+
+THAY ĐỔI SO VỚI v5.0
+────────────────────────────────────────────────────────────────────
+[PIPELINE] Tách biệt rõ FULL_PIPELINE và ARDUINO_ENABLED:
+
+  FULL_PIPELINE = True
+      → Bật toàn bộ: Arduino (servo + siêu âm) + Firebase + Cloudinary
+
+  FULL_PIPELINE = False
+      → Tắt Arduino hoàn toàn (servo + siêu âm)
+      → Vẫn chạy: Firebase + Cloudinary + chụp ảnh
+      → Dùng mock fill_levels thay cho cảm biến siêu âm thực
+      → Flow: LOCKED (chụp ảnh) → DISPENSING (mock delay 2s)
+              → Firebase + Cloudinary upload → COOLDOWN → WAITING
+
+[FLOW]     LOCKED (chụp ảnh) → DISPENSING (Arduino nếu FULL_PIPELINE,
+           mock delay nếu không) → Firebase + Cloudinary → COOLDOWN → WAITING
 ────────────────────────────────────────────────────────────────────
 YÊU CẦU:
     pip install onnxruntime opencv-python torchvision numpy
-    Nếu FULL_PIPELINE=True: thêm firebase-admin pyserial
-    File firebase_credit.json phải nằm cùng thư mục.
+    Firebase + Cloudinary luôn cần: firebase-admin cloudinary
+    Nếu FULL_PIPELINE=True: thêm pyserial
+    File firebase_credit.json + cloudinary_credit.json cùng thư mục.
 ────────────────────────────────────────────────────────────────────
 """
 
@@ -40,12 +56,16 @@ from collections import deque
 # 1. CẤU HÌNH
 # ============================================================
 
-FULL_PIPELINE = True   # ← Đặt True để bật Arduino + Firebase
+FULL_PIPELINE = False   # ← Đặt True để bật Arduino
 
 CAMERA_ID  = 0
 ONNX_PATH  = "waste_detector_v2.onnx"
 META_PATH  = "model_meta.json"
 IMG_SIZE   = 384
+
+from dotenv import load_dotenv
+load_dotenv()  # Load biến môi trường từ file .env (nếu có)
+BIN_ID = os.getenv("BIN_ID")
 
 # --- TTA & Performance ---
 N_TTA          = 1
@@ -96,6 +116,10 @@ FROZEN_DIFF_THRESH  = 12.0
 EMA_ALPHA           = 0.35
 SNAPSHOT_EMA_ALPHA  = 0.05
 
+# --- Idle periodic update ---
+# Nếu không có rác trong khoảng thời gian này (giây), tự động update Firebase.
+IDLE_UPDATE_INTERVAL_SEC = 300.0   # 5 phút
+
 # --- Bin config ---
 BIN_GROUPS = {
     "ORGANIC":    ["Biological"],
@@ -115,42 +139,64 @@ BIN_COLORS = {
 # 2. IMPORT UTILS (có điều kiện theo FULL_PIPELINE)
 # ============================================================
 
-# Thêm thư mục utils vào path để import
 _UTILS_DIR = os.path.join(os.path.dirname(__file__), "utils")
 if _UTILS_DIR not in sys.path:
     sys.path.insert(0, _UTILS_DIR)
 
+# ── Firebase + Cloudinary: luôn import (dùng cho cả 2 chế độ) ──────────────
+from firebaseUtil import (
+    init_firebase,
+    firebase_update_bin,
+    firebase_set_online,
+)
+from cloudinaryUtil import (
+    init_cloudinary,
+    capture_snapshot,
+    upload_and_log,
+    get_firestore_client,
+)
+
+# ── Arduino: chỉ import khi FULL_PIPELINE=True ──────────────────────────────
 if FULL_PIPELINE:
     from arduinoUtil import (
         init_arduino,
         arduino_send_command,
+        read_fill_levels,
+        read_fill_levels_simulated,
         BIN_TO_ARDUINO_CMD,
     )
-    from firebaseUtil import (
-        init_firebase,
-        firebase_update_bin,
-        BIN_ID,
-    )
+    print("[INFO] FULL_PIPELINE=True — Bật toàn bộ Arduino + Firebase + Cloudinary.")
 else:
-    print("[INFO] FULL_PIPELINE=False — Arduino và Firebase bị tắt.")
+    print("[INFO] FULL_PIPELINE=False — Arduino bị tắt; Firebase + Cloudinary vẫn hoạt động.")
+    print("[INFO]   → Servo/siêu âm: DISABLED  |  Firebase/Cloudinary: ENABLED  |  fill_levels: MOCK")
 
-    # Stub functions khi không dùng full pipeline
-    def init_arduino():
+    # Stub Arduino — không kết nối cổng Serial, không điều khiển servo
+    def init_arduino(port=None):
         return None
 
     def arduino_send_command(arduino_serial, bin_type, on_done_callback=None):
-        """Giả lập: callback ngay lập tức khi không có pipeline."""
-        print(f"[STUB] arduino_send_command skipped (bin_type={bin_type})")
-        if on_done_callback:
-            on_done_callback()
+        """Giả lập Arduino: delay 2s rồi gọi callback (không gửi serial)."""
+        def _mock():
+            print(f"[MOCK ARDUINO] Bỏ qua servo (FULL_PIPELINE=False) — bin_type={bin_type}")
+            time.sleep(2.0)   # mô phỏng thời gian servo quay
+            if on_done_callback:
+                on_done_callback()
+        threading.Thread(target=_mock, daemon=True).start()
 
-    def init_firebase():
-        return None
+    def read_fill_levels(arduino_serial, timeout=3.0):
+        return None   # không có cảm biến thực
 
-    def firebase_update_bin(firebase_ok, bin_type, locked_class):
-        print(f"[STUB] firebase_update_bin skipped (bin_type={bin_type})")
-
-    BIN_ID = "local"
+    def read_fill_levels_simulated():
+        """Trả mock fill_levels giống arduinoUtil.read_fill_levels_simulated()."""
+        import random
+        BIN_DEPTH_CM = {"ORGANIC": 30.0, "RECYCLABLE": 30.0, "HAZARDOUS": 20.0, "OTHER": 30.0}
+        result = {}
+        for bin_name, depth in BIN_DEPTH_CM.items():
+            dist     = round(random.uniform(2.0, depth), 1)
+            fill_pct = round((1.0 - dist / depth) * 100.0, 1)
+            result[bin_name] = {"distance_cm": dist, "fill_pct": fill_pct}
+        print(f"[MOCK ARDUINO] fill_levels (simulated): {result}")
+        return result
 
 
 # ============================================================
@@ -178,11 +224,16 @@ print(f"[INFO] AGC       : target={AGC_TARGET}  clip=[{AGC_MIN}, {AGC_MAX}]")
 
 
 # ============================================================
-# 4. KHỞI TẠO FIREBASE & ARDUINO
+# 4. KHỞI TẠO FIREBASE, ARDUINO, CLOUDINARY
 # ============================================================
 
-firebase_ok    = init_firebase()
-arduino_serial = init_arduino() if FULL_PIPELINE else None
+firebase_ok      = init_firebase()
+cloudinary_ok    = init_cloudinary()
+firestore_client = get_firestore_client()
+arduino_serial   = init_arduino() if FULL_PIPELINE else None
+
+# Đánh dấu bin ONLINE ngay sau khi kết nối
+firebase_set_online(firebase_ok, BIN_ID)
 
 
 # ============================================================
@@ -431,13 +482,15 @@ def compute_occupancy(mask_mog2, roi, prev_gray, curr_gray, bg_snapshot_gray=Non
         if cv2.contourArea(largest) > 500:
             bx, by, bw, bh = cv2.boundingRect(largest)
             best_bbox = (x1 + bx, y1 + by, x1 + bx + bw, y1 + by + bh)
-    frozen_occupied = False
-    frozen_diff_val = 0.0
-    if mog_diff_weak and bg_snapshot_gray is not None and curr_gray is not None:
-        roi_snap        = bg_snapshot_gray[y1:y2, x1:x2].astype(np.float32)
-        roi_curr        = curr_gray[y1:y2, x1:x2].astype(np.float32)
-        frozen_diff_val = float(np.mean(np.abs(roi_snap - roi_curr)))
+
+    frozen_diff_val  = 0.0
+    frozen_occupied  = False
+    if bg_snapshot_gray is not None and curr_gray is not None:
+        fz_diff     = cv2.absdiff(curr_gray[y1:y2, x1:x2],
+                                  bg_snapshot_gray[y1:y2, x1:x2].astype(np.uint8))
+        frozen_diff_val = float(fz_diff.mean())
         frozen_occupied = frozen_diff_val > FROZEN_DIFF_THRESH
+
     is_occupied = (
         (mog2_pix > MOG2_PIXEL_THRESH)
         or (diff_pix > DIFF_PIXEL_THRESH)
@@ -490,7 +543,7 @@ STATE_WARMUP     = "WARMUP"
 STATE_WAITING    = "WAITING"
 STATE_DETECTING  = "DETECTING"
 STATE_LOCKED     = "LOCKED"
-STATE_DISPENSING = "DISPENSING"   # Chỉ dùng khi FULL_PIPELINE=True
+STATE_DISPENSING = "DISPENSING"
 STATE_COOLDOWN   = "COOLDOWN"
 
 
@@ -527,8 +580,12 @@ stable_frame_count = 0
 vote_history      = deque(maxlen=VOTE_WINDOW)
 locked_class      = None
 locked_bin        = None
+locked_conf       = 0.0    # confidence tại thời điểm lock
 detect_start_time = None
 dispense_done     = False
+
+# Đường dẫn ảnh snapshot hiện tại (chụp lúc LOCKED, xoá sau upload)
+current_snapshot_path = None
 
 smoothed_probs = np.zeros(len(classes), dtype=np.float32)
 fps_history    = deque(maxlen=30)
@@ -539,10 +596,18 @@ ema_bg_gray  = None
 frame_counter = 0
 last_infer    = None
 
-print(f"[INIT] FULL_PIPELINE : {FULL_PIPELINE}")
+# --- Idle periodic update tracking ---
+last_classification_time = time.time()   # cập nhật mỗi lần _on_arduino_done() xong
+last_idle_update_time    = time.time()   # cập nhật mỗi lần idle update chạy
+
+print(f"[INIT] FULL_PIPELINE  : {FULL_PIPELINE}")
 print(f"[INIT] WARMUP {WARMUP_SEC:.0f}s | TTA={N_TTA} | img_size={img_size}")
 print(f"[INIT] BIN_ID={BIN_ID} | Firebase={'OK' if firebase_ok else 'OFFLINE'}")
-print(f"[INIT] Arduino={'OK' if arduino_serial else ('OFFLINE' if FULL_PIPELINE else 'DISABLED')}")
+print(f"[INIT] Cloudinary={'OK' if cloudinary_ok else 'OFFLINE'}")
+if FULL_PIPELINE:
+    print(f"[INIT] Arduino={'OK' if arduino_serial else 'OFFLINE'} (servo + siêu âm)")
+else:
+    print(f"[INIT] Arduino=DISABLED (FULL_PIPELINE=False) — fill_levels dùng MOCK")
 
 
 # ============================================================
@@ -704,17 +769,20 @@ try:
                         lock_ready   = True
                         locked_class = candidate
                         locked_bin   = get_bin(locked_class)
+                        locked_conf  = conf
                         lock_reason  = f"vote {cand_count}/{n_valid}"
 
                 if not lock_ready and detect_start_time is not None:
                     if elapsed_detect >= VOTE_TIMEOUT_SEC:
                         if valid_votes:
-                            candidate  = max(set(valid_votes), key=valid_votes.count)
-                            cand_count = valid_votes.count(candidate)
+                            candidate   = max(set(valid_votes), key=valid_votes.count)
+                            cand_count  = valid_votes.count(candidate)
+                            locked_conf = conf
                             lock_reason = f"TIMEOUT {elapsed_detect:.1f}s vote({cand_count}/{n_valid})"
                         else:
                             best_idx    = int(np.argmax(smoothed_probs))
                             candidate   = classes[best_idx]
+                            locked_conf = float(smoothed_probs[best_idx])
                             lock_reason = f"TIMEOUT {elapsed_detect:.1f}s prob({smoothed_probs[best_idx]:.2f})"
                         lock_ready   = True
                         locked_class = candidate
@@ -762,7 +830,7 @@ try:
             draw_prob_bars(annotated, smoothed_probs, classes)
 
         # ============================================================
-        # STATE: LOCKED  →  kích hoạt DISPENSING (hoặc COOLDOWN trực tiếp)
+        # STATE: LOCKED  →  Chụp ảnh + kích hoạt DISPENSING
         # ============================================================
         elif state == STATE_LOCKED:
             lock_frame_count += 1
@@ -770,29 +838,66 @@ try:
             draw_action_status(annotated, "LOCKED — chuẩn bị đổ rác...", (0, 255, 200))
 
             if lock_frame_count >= MIN_LOCK_HOLD_FRAMES:
-                if FULL_PIPELINE:
-                    # Chuyển sang DISPENSING, gửi lệnh Arduino + cập nhật Firebase
-                    state         = STATE_DISPENSING
-                    dispense_done = False
-                    print(f"[STATE] LOCKED → DISPENSING: {locked_bin}")
+                # Chụp ảnh tại thời điểm lock (luôn thực hiện)
+                current_snapshot_path = capture_snapshot(cap, BIN_ID, locked_bin)
 
-                    def _on_arduino_done():
-                        global dispense_done
-                        dispense_done = True
-                        print("[DISPENSE] Arduino xong. Cập nhật Firebase...")
-                        firebase_update_bin(firebase_ok, locked_bin, locked_class)
+                state         = STATE_DISPENSING
+                dispense_done = False
+                print(f"[STATE] LOCKED → DISPENSING: {locked_bin}"
+                      f"  (Arduino={'ON' if FULL_PIPELINE else 'MOCK'})")
 
-                    arduino_send_command(arduino_serial, locked_bin,
-                                         on_done_callback=_on_arduino_done)
-                else:
-                    # Bỏ qua Arduino/Firebase, chuyển thẳng sang COOLDOWN
-                    state          = STATE_COOLDOWN
-                    cooldown_count = 0
-                    print(f"[STATE] LOCKED → COOLDOWN (pipeline disabled): "
-                          f"{locked_class} → {locked_bin}")
+                # Capture các giá trị cần dùng trong closure
+                _snap = current_snapshot_path
+                _cls  = locked_class
+                _bin  = locked_bin
+                _conf = locked_conf
+
+                def _on_arduino_done():
+                    global dispense_done, last_classification_time, last_idle_update_time
+                    dispense_done = True
+                    print("[DISPENSE] Hoàn tất. Cập nhật Firebase + Cloudinary...")
+
+                    # fill_levels: đọc cảm biến siêu âm thực khi FULL_PIPELINE=True,
+                    #              dùng mock data khi FULL_PIPELINE=False
+                    if FULL_PIPELINE:
+                        fill_levels = read_fill_levels(arduino_serial)
+                        if fill_levels is None:
+                            print("[DISPENSE] Cảm biến siêu âm chưa phản hồi — dùng simulated.")
+                            fill_levels = read_fill_levels_simulated()
+                    else:
+                        fill_levels = read_fill_levels_simulated()
+
+                    # Cập nhật Firebase (RTDB + Firestore bin_realtime_status)
+                    firebase_update_bin(
+                        firebase_ok  = firebase_ok,
+                        bin_id       = BIN_ID,
+                        bin_type     = _bin,
+                        locked_class = _cls,
+                        fill_levels  = fill_levels,
+                    )
+
+                    # Upload Cloudinary + ghi classification_logs Firestore
+                    upload_and_log(
+                        cloudinary_ok    = cloudinary_ok,
+                        firebase_ok      = firebase_ok,
+                        firestore_client = firestore_client,
+                        bin_id           = BIN_ID,
+                        bin_type         = _bin,
+                        locked_class     = _cls,
+                        confidence_score = _conf,
+                        local_image_path = _snap,
+                    )
+
+                    # Reset timer idle: tính từ lúc pipeline xử lý xong
+                    last_classification_time = time.time()
+                    last_idle_update_time    = time.time()
+
+                # arduino_send_command dùng stub 2s-delay khi FULL_PIPELINE=False
+                arduino_send_command(arduino_serial, locked_bin,
+                                     on_done_callback=_on_arduino_done)
 
         # ============================================================
-        # STATE: DISPENSING  →  chờ Arduino ACK xong (chỉ FULL_PIPELINE)
+        # STATE: DISPENSING  →  chờ Arduino ACK xong
         # ============================================================
         elif state == STATE_DISPENSING:
             draw_locked_banner(annotated, locked_class, locked_bin, BIN_COLORS)
@@ -815,24 +920,59 @@ try:
                 cooldown_count += 1
             else:
                 cooldown_count = 0
-            remaining_cd    = max(0, COOLDOWN_FRAMES - cooldown_count)
+            remaining_cd = max(0, COOLDOWN_FRAMES - cooldown_count)
             cv2.putText(annotated, f"COOLDOWN... {remaining_cd} frames, waiting for empty bin",
                         (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.65,
                         (0, 165, 255), 2, cv2.LINE_AA)
             if cooldown_count >= COOLDOWN_FRAMES:
-                state              = STATE_WAITING
-                locked_class       = None
-                locked_bin         = None
-                lock_frame_count   = 0
-                empty_count        = 0
-                object_count       = 0
-                last_infer         = None
-                detect_start_time  = None
-                stable_frame_count = 0
-                smoothed_probs[:]  = 0.0
-                vote_history       = deque(maxlen=VOTE_WINDOW)
-                dispense_done      = False
+                state                 = STATE_WAITING
+                locked_class          = None
+                locked_bin            = None
+                locked_conf           = 0.0
+                lock_frame_count      = 0
+                empty_count           = 0
+                object_count          = 0
+                last_infer            = None
+                detect_start_time     = None
+                stable_frame_count    = 0
+                smoothed_probs[:]     = 0.0
+                vote_history          = deque(maxlen=VOTE_WINDOW)
+                dispense_done         = False
+                current_snapshot_path = None
                 print("[STATE] COOLDOWN → WAITING (cycle reset)")
+
+        # ============================================================
+        # IDLE PERIODIC UPDATE
+        # Nếu state == WAITING và không có rác >= IDLE_UPDATE_INTERVAL_SEC
+        # kể từ lần phân loại cuối → update Firebase định kỳ để giữ bin ONLINE.
+        # ============================================================
+        if state == STATE_WAITING:
+            _now = time.time()
+            _idle_since            = _now - last_classification_time
+            _since_last_idle_push  = _now - last_idle_update_time
+
+            if (_idle_since          >= IDLE_UPDATE_INTERVAL_SEC
+                    and _since_last_idle_push >= IDLE_UPDATE_INTERVAL_SEC):
+
+                print(f"[IDLE] {_idle_since:.0f}s không có rác — "
+                      f"cập nhật Firebase định kỳ...")
+
+                _idle_fill = (
+                    read_fill_levels(arduino_serial)
+                    if FULL_PIPELINE
+                    else read_fill_levels_simulated()
+                )
+                if _idle_fill is None:
+                    _idle_fill = read_fill_levels_simulated()
+
+                firebase_update_bin(
+                    firebase_ok  = firebase_ok,
+                    bin_id       = BIN_ID,
+                    bin_type     = "OTHER",        # không có rác → dùng placeholder
+                    locked_class = "idle_heartbeat",
+                    fill_levels  = _idle_fill,
+                )
+                last_idle_update_time = _now
 
         # ── FPS ──────────────────────────────────────────────────────
         elapsed = time.time() - t_start
@@ -855,7 +995,7 @@ try:
                     (10, h - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.50,
                     fps_color, 1, cv2.LINE_AA)
 
-        cv2.imshow("SmartTrashBin v4.1", annotated)
+        cv2.imshow("SmartTrashBin v5.0", annotated)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
@@ -863,7 +1003,7 @@ finally:
     with _infer_lock:
         _infer_request = "STOP"
     _worker_thread.join(timeout=3.0)
-    if FULL_PIPELINE and arduino_serial:
+    if arduino_serial:
         arduino_serial.close()
         print("[EXIT] Đóng cổng Arduino.")
     cap.release()
