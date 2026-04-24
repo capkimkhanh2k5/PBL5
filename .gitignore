@@ -54,3 +54,6 @@ mobileapp/android/local.properties
 postman/
 
 **/Key/**
+
+firebase_credit.json
+.env
