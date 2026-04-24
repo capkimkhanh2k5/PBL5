@@ -50,7 +50,7 @@ public class ClassificationLogService {
         }
     }
 
-    public List<ClassificationLog> getLatestLogs(String binId, int limit) {
+    public List<ClassificationLog> getLatestLogs(String binId, String classificationResult, int limit) {
         try {
             List<ClassificationLog> logs = new ArrayList<>();
             Query query;
@@ -58,15 +58,20 @@ public class ClassificationLogService {
             if (binId != null && !binId.isBlank()) {
                 String normalizedBinId = _normalizeBinId(binId);
 
-                // Avoid composite-index requirement by filtering first, then sorting in memory.
-                int fetchLimit = Math.max(limit * 5, 100);
-                Query snakeCaseQuery = firestore.collection(COLLECTION_NAME)
-                    .whereEqualTo("bin_id", binId)
-                        .limit(fetchLimit);
+                // Build query for bin_id
+                Query snakeCaseQuery = firestore.collection(COLLECTION_NAME).whereEqualTo("bin_id", binId);
+                Query camelCaseQuery = firestore.collection(COLLECTION_NAME).whereEqualTo("binId", binId);
 
-                Query camelCaseQuery = firestore.collection(COLLECTION_NAME)
-                    .whereEqualTo("binId", binId)
-                        .limit(fetchLimit);
+                // Add classification filter if provided
+                if (classificationResult != null && !classificationResult.isBlank()) {
+                    snakeCaseQuery = snakeCaseQuery.whereEqualTo("classification_result", classificationResult);
+                    camelCaseQuery = camelCaseQuery.whereEqualTo("classificationResult", classificationResult);
+                }
+
+                // Apply limit and fetch
+                int fetchLimit = Math.max(limit * 5, 100);
+                snakeCaseQuery = snakeCaseQuery.limit(fetchLimit);
+                camelCaseQuery = camelCaseQuery.limit(fetchLimit);
 
                 Set<String> seenDocIds = new java.util.HashSet<>();
 
@@ -92,13 +97,22 @@ public class ClassificationLogService {
 
                     for (QueryDocumentSnapshot doc : fallbackQuery.get().get().getDocuments()) {
                         ClassificationLog log = mapClassificationLog(doc);
-                        if (_normalizeBinId(log.getBinId()).equals(normalizedBinId)) {
+                        boolean matchesBin = _normalizeBinId(log.getBinId()).equals(normalizedBinId);
+                        boolean matchesClass = classificationResult == null || classificationResult.isBlank() ||
+                                (log.getClassificationResult() != null && log.getClassificationResult().equalsIgnoreCase(classificationResult));
+                        
+                        if (matchesBin && matchesClass) {
                             logs.add(log);
                         }
                     }
                 }
             } else {
-                query = firestore.collection(COLLECTION_NAME)
+                Query baseQuery = firestore.collection(COLLECTION_NAME);
+                if (classificationResult != null && !classificationResult.isBlank()) {
+                    baseQuery = baseQuery.whereEqualTo("classification_result", classificationResult);
+                }
+                
+                query = baseQuery
                         .orderBy("classified_at", Query.Direction.DESCENDING)
                         .limit(limit);
 
