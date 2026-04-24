@@ -161,10 +161,11 @@ class ApiService {
     return const [];
   }
 
-  Future<List<Map<String, dynamic>>> getClassificationLogs({String? binId, int limit = 20}) async {
+  Future<List<Map<String, dynamic>>> getClassificationLogs({String? binId, String? type, int limit = 20}) async {
     final response = await _dio.get('/system/classification-logs', queryParameters: {
       'limit': limit,
       if (binId != null && binId.isNotEmpty) 'binId': binId,
+      if (type != null && type.isNotEmpty) 'type': type,
     });
     final data = response.data;
     if (data is List) {

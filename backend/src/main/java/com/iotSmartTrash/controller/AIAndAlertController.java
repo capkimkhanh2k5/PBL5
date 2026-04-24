@@ -53,9 +53,10 @@ public class AIAndAlertController {
     @GetMapping("/classification-logs")
     public ResponseEntity<List<ClassificationLog>> getClassificationLogs(
             @RequestParam(required = false) String binId,
+            @RequestParam(required = false) String type,
             @RequestParam(defaultValue = "20") int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
-        return ResponseEntity.ok(aiLogger.getLatestLogs(binId, safeLimit));
+        return ResponseEntity.ok(aiLogger.getLatestLogs(binId, type, safeLimit));
     }
 
     /** Lấy lịch thu gom dựa trên dữ liệu aggregate bin_sensor_logs */
