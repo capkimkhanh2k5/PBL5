@@ -5,15 +5,22 @@ import 'ai_chat_screen.dart';
 import 'settings_screen.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../services/api_service.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final ApiService apiService;
+
+  const HomeScreen({
+    super.key,
+    required this.apiService,
+  });
 
   @override
   State<HomeScreen> createState() => HomeScreenState();
 }
 
 class HomeScreenState extends State<HomeScreen> {
+
   final TextEditingController _searchCtrl = TextEditingController();
   final _authService = AuthService();
   String _query = '';
@@ -287,7 +294,7 @@ class HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 14),
 
               // Ask your plant card
-              const AskAiCard(),
+              AskAiCard(apiService: widget.apiService),
 
               const SizedBox(height: 16),
 
@@ -390,7 +397,12 @@ class _SearchTextField extends StatelessWidget {
 }
 
 class AskAiCard extends StatelessWidget {
-  const AskAiCard({super.key});
+  final ApiService apiService;
+
+  const AskAiCard({
+    super.key,
+    required this.apiService,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -402,7 +414,9 @@ class AskAiCard extends StatelessWidget {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => const AiChatScreen(),
+            builder: (_) => AiChatScreen(
+              apiService: apiService,
+            ),
           ),
         );
       },

@@ -6,6 +6,8 @@ import 'firebase_options.dart';
 import 'services/notification_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_shell.dart';
+import 'services/api_service.dart';
+import 'services/auth_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -67,7 +69,10 @@ class AuthGate extends StatelessWidget {
         }
         // Đã đăng nhập
         if (snapshot.hasData) {
-          return const MainShell();
+          final authService = AuthService();
+          final apiService = ApiService(authService: authService);
+
+          return MainShell(apiService: apiService);
         }
         // Chưa đăng nhập
         return const LoginScreen();

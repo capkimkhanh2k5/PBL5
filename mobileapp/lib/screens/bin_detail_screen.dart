@@ -47,6 +47,10 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
           );
       final logs = results[1];
 
+      print('STATUS = $status');
+      print('FIRST LOG = ${logs.isNotEmpty ? logs.first : 'EMPTY'}');
+      print('BIN ID = ${widget.binId}');
+
       int fillOrganic = _toInt(status?['fillOrganic']) ?? 0;
       int fillRecycle = _toInt(status?['fillRecycle']) ?? 0;
       int fillNonRecycle = _toInt(status?['fillNonRecycle']) ?? 0;

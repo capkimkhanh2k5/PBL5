@@ -4,9 +4,13 @@ import 'scan_qr_screen.dart';
 import 'ai_chat_screen.dart';
 import 'schedule_screen.dart';
 import 'map_screen.dart';
+import '../services/api_service.dart';
 
 class MainShell extends StatefulWidget {
-  const MainShell({super.key});
+
+  final ApiService apiService;
+
+  const MainShell({super.key ,required this.apiService,});
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -19,10 +23,13 @@ class _MainShellState extends State<MainShell> {
   final GlobalKey<MapScreenState> _mapKey = GlobalKey<MapScreenState>();
 
   late final List<Widget> _pages = [
-    HomeScreen(key: _homeKey),         // 0
+    HomeScreen(
+      key: _homeKey,
+      apiService: widget.apiService,
+    ),        // 0
     const ScheduleScreen(),             // 1
     const SizedBox.shrink(),            // 2 (FAB)
-    const AiChatScreen(),               // 3
+    AiChatScreen(apiService: widget.apiService),               // 3
     MapScreen(key: _mapKey),            // 4
   ];
 

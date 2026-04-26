@@ -1,13 +1,26 @@
 import 'package:flutter/material.dart';
+import '../services/groq_service.dart';
+import 'dart:convert';
+import '../services/api_service.dart';
 
 class AiChatScreen extends StatefulWidget {
-  const AiChatScreen({super.key});
+  final ApiService apiService;
+
+  const AiChatScreen({
+    super.key,
+    required this.apiService,
+  });
 
   @override
   State<AiChatScreen> createState() => _AiChatScreenState();
 }
 
 class _AiChatScreenState extends State<AiChatScreen> {
+
+  bool isLoading = false;
+  final _scrollCtrl = ScrollController();
+  final groq = GroqService();
+  final List<Map<String, String>> messages = [];
   final _ctrl = TextEditingController();
 
   @override
@@ -64,6 +77,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                 // Content
                 Expanded(
                   child: SingleChildScrollView(
+                    controller: _scrollCtrl,
                     padding: const EdgeInsets.fromLTRB(16, 28, 16, 120),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.center,
@@ -77,64 +91,47 @@ class _AiChatScreenState extends State<AiChatScreen> {
                           ),
                         ),
                         const SizedBox(height: 10),
+
                         const Text(
-                          "Good Morning, Zhongli!\nHow can I help you today?",
+                          "Good Morning!\nHow can I help you today?",
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 16,
-                            height: 1.3,
                             fontWeight: FontWeight.w800,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          "Choose a prompt below or write your own to\nstart chatting with your AI assistant!",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 12.8,
-                            height: 1.3,
-                            color: Colors.black.withOpacity(0.65),
-                            fontWeight: FontWeight.w600,
                           ),
                         ),
 
                         const SizedBox(height: 16),
 
-                        // Example prompts
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            "🌿 Examples",
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.black.withOpacity(0.70),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-
                         _promptGrid(context),
 
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 20),
 
-                        // Sample chat bubbles (giống ảnh)
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: _bubble(
-                            "Good Morning, Zhongli!\nHow can I help you today?",
-                            alignRight: true,
+                        /// 🔥 CHAT THẬT
+                        ...messages.map((msg) {
+                          final isUser = msg["role"] == "user";
+
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Align(
+                              alignment: isUser
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                              child: _bubble(
+                                msg["text"]!,
+                                alignRight: isUser,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        if (isLoading)
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 10),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text("AI is typing..."),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: _bubble(
-                            "Show bins that are nearly full",
-                            alignRight: false,
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -211,11 +208,18 @@ class _AiChatScreenState extends State<AiChatScreen> {
   }) {
     return InkWell(
       borderRadius: BorderRadius.circular(16),
-      onTap: () {
-        // demo: đổ text vào input
-        _ctrl.text = text.replaceAll('\n', ' ');
-        setState(() {});
-      },
+        onTap: () {
+          final sendText = text.replaceAll('\n', ' ');
+
+          _ctrl.text = sendText;
+
+          _ctrl.selection = TextSelection.fromPosition(
+            TextPosition(offset: _ctrl.text.length),
+          );
+
+          setState(() {});
+        },
+
       child: Container(
         width: width,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -296,13 +300,6 @@ class _AiChatScreenState extends State<AiChatScreen> {
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.90),
         borderRadius: BorderRadius.circular(26),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 8),
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -313,17 +310,93 @@ class _AiChatScreenState extends State<AiChatScreen> {
                 hintText: "Send a message",
                 border: InputBorder.none,
               ),
-              onSubmitted: (_) => FocusScope.of(context).unfocus(),
             ),
           ),
-          if (_ctrl.text.isNotEmpty)
-            GestureDetector(
-              onTap: () {
-                _ctrl.clear();
-                setState(() {});
-              },
-              child: Icon(Icons.close, size: 18, color: Colors.black54),
-            ),
+
+          /// ❗ NÚT SEND
+          IconButton(
+            icon: const Icon(Icons.send),
+              onPressed: () async {
+                final text = _ctrl.text.trim();
+                if (text.isEmpty) return;
+
+                setState(() {
+                  messages.add({"role": "user", "text": text});
+                  _ctrl.clear();
+                  isLoading = true;
+                });
+
+                _scrollToBottom();
+
+                try {
+                  final aiContext = await widget.apiService.getAiContext();
+                  print("AI CONTEXT = ${jsonEncode(aiContext)}");
+                  print("PICKUP SCHEDULE = ${jsonEncode(aiContext["pickupSchedule"])}");
+                  print("PICKUP SCHEDULE TYPE = ${aiContext["pickupSchedule"].runtimeType}");
+
+                  final schedule = aiContext["pickupSchedule"] as List? ?? [];
+
+                  final prompt = """
+You are an AI assistant for a Smart Trash App.
+
+Use ONLY the provided data.
+
+pickupScheduleLength = ${schedule.length}
+
+Rules:
+
+1. TODAY:
+- Only consider bins with predictedInHours <= 24
+- If none → say:
+  "No collection scheduled today."
+
+2. TOMORROW:
+- Only consider bins with 24 < predictedInHours <= 48
+- If none → say:
+  "No collection scheduled tomorrow."
+- If multiple → pick the EARLIEST one only
+
+3. RESPONSE FORMAT:
+
+For today:
+→ "Next pickup today: BIN_ID (in Xh)"
+
+For tomorrow:
+→ "Next pickup tomorrow: BIN_ID (in Xh)"
+
+4. DO NOT:
+- list multiple bins
+- show avgFill, priority, or technical data
+- explain anything
+
+5. Keep response SHORT (1 line only)
+
+Pickup Schedule:
+${jsonEncode(schedule)}
+
+User question:
+$text
+""";
+                  final reply = await groq.send(prompt);
+
+                  setState(() {
+                    messages.add({"role": "ai", "text": reply});
+                    isLoading = false;
+                  });
+
+                } catch (e) {
+                  setState(() {
+                    messages.add({
+                      "role": "ai",
+                      "text": "Cannot load bin data right now."
+                    });
+                    isLoading = false;
+                  });
+                }
+
+                _scrollToBottom();
+              }
+          ),
         ],
       ),
     );
@@ -377,5 +450,16 @@ class _AiChatScreenState extends State<AiChatScreen> {
         shape: BoxShape.circle,
       ),
     );
+  }
+  void _scrollToBottom() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(
+          _scrollCtrl.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 }
