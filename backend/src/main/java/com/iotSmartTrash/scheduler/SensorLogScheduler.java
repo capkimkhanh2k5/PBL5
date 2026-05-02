@@ -69,7 +69,7 @@ public class SensorLogScheduler {
     /**
      * Dọn dẹp raw sensor logs cũ hơn 24h trong Firestore. Chạy 30 phút sau aggregate.
      */
-    @Scheduled(cron = "0 30 0,6,12,18 * * *")
+    //@Scheduled(cron = "0 30 0,6,12,18 * * *")
     public void cleanupOldSensorLogs() {
         long cutoff = System.currentTimeMillis() - LOG_TTL_MS;
         log.info("[Scheduler] Start cleanup old raw sensor logs before {}", cutoff);

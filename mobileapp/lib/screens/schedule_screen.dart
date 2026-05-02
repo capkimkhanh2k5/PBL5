@@ -124,24 +124,28 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     ),
                     const SizedBox(height: 8),
                     RadioListTile<int>(
+                      activeColor: primary,
                       value: 10,
                       groupValue: temp,
                       onChanged: (v) => setLocalState(() => temp = v ?? 10),
                       title: const Text('10 minutes'),
                     ),
                     RadioListTile<int>(
+                      activeColor: primary,
                       value: 30,
                       groupValue: temp,
                       onChanged: (v) => setLocalState(() => temp = v ?? 30),
                       title: const Text('30 minutes'),
                     ),
                     RadioListTile<int>(
+                      activeColor: primary,
                       value: 60,
                       groupValue: temp,
                       onChanged: (v) => setLocalState(() => temp = v ?? 60),
                       title: const Text('1 hour'),
                     ),
                     RadioListTile<int>(
+                      activeColor: primary,
                       value: 1440,
                       groupValue: temp,
                       onChanged: (v) => setLocalState(() => temp = v ?? 1440),
@@ -151,6 +155,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primary, //  nền xanh
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
                         onPressed: () => Navigator.of(ctx).pop(temp),
                         child: const Text('Confirm'),
                       ),
@@ -307,7 +318,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         elevation: 0,
         centerTitle: true,
         title: const Text(
-          'Lịch Đổ Rác',
+          'Trash collection schedule',
           style: TextStyle(
             color: Colors.black87,
             fontWeight: FontWeight.w700,
@@ -343,7 +354,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                               const Icon(Icons.event_busy, size: 54, color: Colors.black54),
                               const SizedBox(height: 12),
                               const Text(
-                                'Chưa có lịch thu gom',
+                                'No collection schedule available',
                                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                               ),
                               const SizedBox(height: 8),
@@ -402,6 +413,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                         style: const TextStyle(
                             fontSize: 16, fontWeight: FontWeight.w600),
                       ),
+
+                      const Spacer(),
+
                       Text(
                         _items.isNotEmpty ? _items.first.timeLeftLabel : "",
                         style: TextStyle(
@@ -475,7 +489,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 it.formattedDate, 
                 'Estimated · ${it.binId}', 
                 it.eta.isBefore(DateTime.now()) 
-                    ? 'Quá hạn' 
+                    ? 'Overdue'
                     : '${it.priority} · In ${it.timeLeftLabel}',
                 isOverdue: it.eta.isBefore(DateTime.now())
               ),
@@ -559,13 +573,13 @@ class _PickupItem {
 
   String get timeLeftLabel {
     final now = DateTime.now();
-    if (eta.isBefore(now)) return 'Đã quá hạn';
+    if (eta.isBefore(now)) return 'Already overdue';
     
     final diffMinutes = eta.difference(now).inMinutes;
-    if (diffMinutes < 60) return '$diffMinutes phút';
-    if (diffMinutes < 1440) return '${diffMinutes ~/ 60} giờ';
+    if (diffMinutes < 60) return '$diffMinutes minutes';
+    if (diffMinutes < 1440) return '${diffMinutes ~/ 60} hours';
     final days = (diffMinutes / 1440).ceil();
-    return '$days ngày';
+    return '$days days';
   }
 
   String get formatted {

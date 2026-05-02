@@ -5,6 +5,7 @@ import com.iotSmartTrash.exception.ServiceException;
 import com.iotSmartTrash.model.BinRawSensorLog;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import com.google.cloud.firestore.Query;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -215,6 +216,33 @@ public class BinRawSensorLogService {
             }
         }
         return 0L;
+    }
+
+    public BinRawSensorLog getLatestRawLogByBinId(String binId) {
+        try {
+            var snapshot = firestore.collection("bin_raw_sensor_logs")
+                    .document(binId)
+                    .collection("logs")
+                    .orderBy("recorded_at", Query.Direction.DESCENDING)
+                    .limit(1)
+                    .get()
+                    .get();
+
+            if (snapshot.isEmpty()) {
+                throw new ServiceException("No raw sensor logs found for bin: " + binId);
+            }
+
+            var doc = snapshot.getDocuments().get(0);
+            BinRawSensorLog log = doc.toObject(BinRawSensorLog.class);
+            log.setId(doc.getId());
+
+            return log;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot get latest raw log: operation interrupted", e);
+        } catch (Exception e) {
+            throw new ServiceException("Cannot get latest raw log for bin: " + binId, e);
+        }
     }
 
 }

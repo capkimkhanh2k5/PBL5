@@ -21,13 +21,13 @@ class ApiService {
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         // Mobile thật/emulator: dùng LAN IP của máy chạy backend.
-        return 'http://192.168.1.10:8080/api/v1';
+        return 'http://192.168.1.6:8081/api/v1';
       case TargetPlatform.iOS:
         // iPhone thật không truy cập được localhost của Mac, dùng LAN IP.
         return 'http://192.168.1.10:8080/api/v1';
       default:
         // Desktop/dev fallback
-        return 'http://localhost:8080/api/v1';
+        return 'http://192.168.1.6:8081/api/v1';
     }
   }
 
@@ -49,6 +49,9 @@ class ApiService {
         handler.next(options);
       },
       onError: (error, handler) {
+        print("API ERROR CODE = ${error.response?.statusCode}");
+        print("API ERROR BODY = ${error.response?.data}");
+        print("API ERROR URL = ${error.requestOptions.uri}");
         // Log hoặc handle lỗi chung (401, 500, v.v.)
         handler.next(error);
       },
@@ -198,4 +201,24 @@ class ApiService {
   Future<Response> post(String path, {dynamic data}) {
     return _dio.post(path, data: data);
   }
+
+  Future<Map<String, dynamic>> getMyProfile() async {
+    final response = await _dio.get('/settings/me');
+    return response.data;
+  }
+
+  Future<void> updateUsername(String username) async {
+    await _dio.put(
+      '/settings/username',
+      data: {
+        'username': username,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> getAiContext() async {
+    final response = await _dio.get('/ai/context');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
 }
+
