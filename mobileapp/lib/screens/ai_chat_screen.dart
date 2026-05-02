@@ -335,46 +335,92 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   print("PICKUP SCHEDULE TYPE = ${aiContext["pickupSchedule"].runtimeType}");
 
                   final schedule = aiContext["pickupSchedule"] as List? ?? [];
+                  final bins = aiContext["bins"] as List? ?? [];
 
                   final prompt = """
 You are an AI assistant for a Smart Trash App.
 
-Use ONLY the provided data.
+You MUST follow ALL rules strictly.
 
-pickupScheduleLength = ${schedule.length}
+========================
+TIME CLASSIFICATION RULES
+========================
+
+- If predictedInHours <= 24 → TODAY
+- If 24 < predictedInHours <= 48 → TOMORROW
+- If predictedInHours > 48 → IGNORE
+
+NEVER mislabel time.
+
+========================
+INTENT DETECTION
+========================
+
+User intents:
+
+1. "nearly full"
+→ Filter bins where avgFill >= 80
+→ If none:
+   "No bins are nearly full."
+→ If multiple:
+   → list ALL BIN_ID
+
+2. "today"
+→ Filter bins with predictedInHours <= 24
+→ If none:
+   "No collection scheduled today."
+→ If multiple:
+   → list ALL bins sorted by predictedInHours (ascending)
+
+3. "tomorrow"
+→ Filter bins with 24 < predictedInHours <= 48
+→ If none:
+   "No collection scheduled tomorrow."
+→ If multiple:
+   → list ALL bins sorted by predictedInHours (ascending)
+
+4. "history"
+→ Respond:
+"Disposal history is coming soon."
+
+5. "optimize"
+→ Respond:
+"Route optimization is coming soon."
+
+6. Unknown
+→ Respond:
+"I can only help with trash-related features."
+
+========================
+RESPONSE FORMAT (STRICT)
+========================
+
+Today:
+"Today pickups:
+- BIN_ID (in Xh)
+- BIN_ID (in Xh)"
+
+Tomorrow:
+"Tomorrow pickups:
+- BIN_ID (in Xh)
+- BIN_ID (in Xh)"
 
 Rules:
+- Keep it SHORT
+- DO NOT explain
+- Always sort by predictedInHours (smallest first)
 
-1. TODAY:
-- Only consider bins with predictedInHours <= 24
-- If none → say:
-  "No collection scheduled today."
-
-2. TOMORROW:
-- Only consider bins with 24 < predictedInHours <= 48
-- If none → say:
-  "No collection scheduled tomorrow."
-- If multiple → pick the EARLIEST one only
-
-3. RESPONSE FORMAT:
-
-For today:
-→ "Next pickup today: BIN_ID (in Xh)"
-
-For tomorrow:
-→ "Next pickup tomorrow: BIN_ID (in Xh)"
-
-4. DO NOT:
-- list multiple bins
-- show avgFill, priority, or technical data
-- explain anything
-
-5. Keep response SHORT (1 line only)
+========================
+DATA
+========================
 
 Pickup Schedule:
 ${jsonEncode(schedule)}
 
-User question:
+========================
+USER QUESTION
+========================
+
 $text
 """;
                   final reply = await groq.send(prompt);
