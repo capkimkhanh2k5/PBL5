@@ -208,4 +208,68 @@ public class AlertService {
     private Integer safeInt(Integer value) {
         return value != null ? value : 0;
     }
+
+    public boolean hasActiveOfflineAlert(String binId) {
+        try {
+            var snapshot = firestore.collection(COLLECTION_NAME)
+                    .whereEqualTo("bin_id", binId)
+                    .whereEqualTo("alert_type", AlertType.OFFLINE.name())
+                    .whereEqualTo("status", AlertStatus.NEW.name())
+                    .get()
+                    .get();
+
+            return !snapshot.isEmpty();
+        } catch (Exception e) {
+            throw new ServiceException("Cannot check active offline alert for bin: " + binId, e);
+        }
+    }
+
+    public void resolveOfflineAlert(String binId) {
+        try {
+            var snapshot = firestore.collection(COLLECTION_NAME)
+                    .whereEqualTo("bin_id", binId)
+                    .whereEqualTo("alert_type", AlertType.OFFLINE.name())
+                    .whereEqualTo("status", AlertStatus.NEW.name())
+                    .get()
+                    .get();
+
+            for (var doc : snapshot.getDocuments()) {
+                resolveAlert(doc.getId(), "system");
+            }
+        } catch (Exception e) {
+            throw new ServiceException("Cannot resolve offline alert for bin: " + binId, e);
+        }
+    }
+    @Scheduled(fixedRate = 60000) // mỗi 1 phút
+    public void checkOfflineBins() {
+        List<String> binIds = rawSensorLogService.getAllBinIds();
+
+        for (String binId : binIds) {
+            try {
+                BinRawSensorLog latest = rawSensorLogService.getLatestRawLogByBinId(binId);
+
+                long now = System.currentTimeMillis();
+                long last = latest.getRecordedAt();
+
+                boolean isOffline = (now - last > 20 * 60 * 1000);
+
+                if (isOffline && !hasActiveOfflineAlert(binId)) {
+
+                    Alert alert = Alert.builder()
+                            .binId(binId)
+                            .alertType(AlertType.OFFLINE)
+                            .severity(AlertSeverity.WARNING)
+                            .message("Bin is offline (no data for 20 minutes)")
+                            .status(AlertStatus.NEW)
+                            .build();
+
+                    createAlert(alert);
+                }
+
+            } catch (Exception e) {
+                // tránh crash scheduler nếu 1 bin lỗi
+                System.err.println("Error checking bin " + binId);
+            }
+        }
+    }
 }

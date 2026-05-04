@@ -28,11 +28,13 @@ public class BinRawSensorLogService {
     private static final String SUB_COLLECTION = "logs";
 
     private final Firestore firestore;
+    private final AlertService alertService;
 
     /**
      * Raspi gọi mỗi 30 giây để ghi một raw sensor log mới.
      */
     public String addLog(String binId, BinRawSensorLog log) {
+
         try {
             DocumentReference docRef = firestore
                     .collection(PARENT_COLLECTION).document(binId)
@@ -41,14 +43,20 @@ public class BinRawSensorLogService {
 
             // Write canonical snake_case fields for stable querying/indexing.
                 Map<String, Object> payload = new HashMap<>();
-                payload.put("battery_level", safeInt(log.getBatteryLevel()));
+
                 payload.put("fill_organic", safeInt(log.getFillOrganic()));
                 payload.put("fill_recycle", safeInt(log.getFillRecycle()));
                 payload.put("fill_non_recycle", safeInt(log.getFillNonRecycle()));
                 payload.put("fill_hazardous", safeInt(log.getFillHazardous()));
                 payload.put("recorded_at", recordedAt);
 
-            return docRef.set(payload).get().getUpdateTime().toString();
+
+
+            String updateTime = docRef.set(payload).get().getUpdateTime().toString();
+
+            alertService.resolveOfflineAlert(binId);
+
+            return updateTime;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ServiceException("Cannot add raw sensor log: operation interrupted", e);
@@ -185,7 +193,7 @@ public class BinRawSensorLogService {
     private BinRawSensorLog mapRawLog(QueryDocumentSnapshot doc) {
         return BinRawSensorLog.builder()
                 .id(doc.getId())
-                .batteryLevel(getInt(doc, "battery_level"))
+
                 .fillOrganic(getInt(doc, "fill_organic"))
                 .fillRecycle(getInt(doc, "fill_recycle"))
                 .fillNonRecycle(getInt(doc, "fill_non_recycle"))
