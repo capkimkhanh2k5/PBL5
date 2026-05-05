@@ -5,6 +5,7 @@ import com.iotSmartTrash.exception.ServiceException;
 import com.iotSmartTrash.model.BinRawSensorLog;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
 import com.google.cloud.firestore.Query;
 
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+
 
 /**
  * Service quản lý raw sensor logs trên Firestore (subcollection pattern).
@@ -28,7 +30,6 @@ public class BinRawSensorLogService {
     private static final String SUB_COLLECTION = "logs";
 
     private final Firestore firestore;
-    private final AlertService alertService;
 
     /**
      * Raspi gọi mỗi 30 giây để ghi một raw sensor log mới.
@@ -54,7 +55,6 @@ public class BinRawSensorLogService {
 
             String updateTime = docRef.set(payload).get().getUpdateTime().toString();
 
-            alertService.resolveOfflineAlert(binId);
 
             return updateTime;
         } catch (InterruptedException e) {

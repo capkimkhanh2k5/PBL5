@@ -13,6 +13,7 @@ import com.iotSmartTrash.model.enums.AlertStatus;
 import com.iotSmartTrash.model.enums.AlertType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -58,8 +59,7 @@ public class AlertService {
             String updateTime = docRef.set(payload).get().getUpdateTime().toString();
 
             // Send push after successful persistence so Firestore remains source of truth.
-            fcmNotificationService.sendAlertCreated(alert);
-
+            System.out.println("🔴 OFFLINE: Bin " + alert.getBinId());
             return updateTime;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -248,11 +248,14 @@ public class AlertService {
             try {
                 BinRawSensorLog latest = rawSensorLogService.getLatestRawLogByBinId(binId);
 
+                if (latest == null) continue; // tránh crash
+
                 long now = System.currentTimeMillis();
                 long last = latest.getRecordedAt();
 
                 boolean isOffline = (now - last > 20 * 60 * 1000);
 
+                // 🔴 OFFLINE → tạo alert
                 if (isOffline && !hasActiveOfflineAlert(binId)) {
 
                     Alert alert = Alert.builder()
@@ -266,8 +269,11 @@ public class AlertService {
                     createAlert(alert);
                 }
 
+                // 🟢 ONLINE lại → resolve alert OFFLINE
+                if (!isOffline && hasActiveOfflineAlert(binId)) {
+                    resolveOfflineAlert(binId);
+                    System.out.println("🟢 ONLINE: Bin " + binId);}
             } catch (Exception e) {
-                // tránh crash scheduler nếu 1 bin lỗi
                 System.err.println("Error checking bin " + binId);
             }
         }
