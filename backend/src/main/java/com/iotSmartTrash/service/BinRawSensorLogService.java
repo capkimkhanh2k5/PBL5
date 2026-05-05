@@ -241,10 +241,7 @@ public class BinRawSensorLogService {
             }
 
             var doc = snapshot.getDocuments().get(0);
-            BinRawSensorLog log = doc.toObject(BinRawSensorLog.class);
-            log.setId(doc.getId());
-
-            return log;
+            return mapRawLog(doc);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ServiceException("Cannot get latest raw log: operation interrupted", e);
