@@ -13,6 +13,7 @@ import com.iotSmartTrash.model.enums.AlertStatus;
 import com.iotSmartTrash.model.enums.AlertType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -58,8 +59,7 @@ public class AlertService {
             String updateTime = docRef.set(payload).get().getUpdateTime().toString();
 
             // Send push after successful persistence so Firestore remains source of truth.
-            fcmNotificationService.sendAlertCreated(alert);
-
+            System.out.println("🔴 OFFLINE: Bin " + alert.getBinId());
             return updateTime;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -207,5 +207,75 @@ public class AlertService {
 
     private Integer safeInt(Integer value) {
         return value != null ? value : 0;
+    }
+
+    public boolean hasActiveOfflineAlert(String binId) {
+        try {
+            var snapshot = firestore.collection(COLLECTION_NAME)
+                    .whereEqualTo("bin_id", binId)
+                    .whereEqualTo("alert_type", AlertType.OFFLINE.name())
+                    .whereEqualTo("status", AlertStatus.NEW.name())
+                    .get()
+                    .get();
+
+            return !snapshot.isEmpty();
+        } catch (Exception e) {
+            throw new ServiceException("Cannot check active offline alert for bin: " + binId, e);
+        }
+    }
+
+    public void resolveOfflineAlert(String binId) {
+        try {
+            var snapshot = firestore.collection(COLLECTION_NAME)
+                    .whereEqualTo("bin_id", binId)
+                    .whereEqualTo("alert_type", AlertType.OFFLINE.name())
+                    .whereEqualTo("status", AlertStatus.NEW.name())
+                    .get()
+                    .get();
+
+            for (var doc : snapshot.getDocuments()) {
+                resolveAlert(doc.getId(), "system");
+            }
+        } catch (Exception e) {
+            throw new ServiceException("Cannot resolve offline alert for bin: " + binId, e);
+        }
+    }
+    @Scheduled(fixedRate = 60000) // mỗi 1 phút
+    public void checkOfflineBins() {
+        List<String> binIds = rawSensorLogService.getAllBinIds();
+
+        for (String binId : binIds) {
+            try {
+                BinRawSensorLog latest = rawSensorLogService.getLatestRawLogByBinId(binId);
+
+                if (latest == null) continue; // tránh crash
+
+                long now = System.currentTimeMillis();
+                long last = latest.getRecordedAt();
+
+                boolean isOffline = (now - last > 20 * 60 * 1000);
+
+                // 🔴 OFFLINE → tạo alert
+                if (isOffline && !hasActiveOfflineAlert(binId)) {
+
+                    Alert alert = Alert.builder()
+                            .binId(binId)
+                            .alertType(AlertType.OFFLINE)
+                            .severity(AlertSeverity.WARNING)
+                            .message("Bin is offline (no data for 20 minutes)")
+                            .status(AlertStatus.NEW)
+                            .build();
+
+                    createAlert(alert);
+                }
+
+                // 🟢 ONLINE lại → resolve alert OFFLINE
+                if (!isOffline && hasActiveOfflineAlert(binId)) {
+                    resolveOfflineAlert(binId);
+                    System.out.println("🟢 ONLINE: Bin " + binId);}
+            } catch (Exception e) {
+                System.err.println("Error checking bin " + binId);
+            }
+        }
     }
 }

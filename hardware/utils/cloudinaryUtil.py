@@ -161,8 +161,8 @@ def upload_and_log(
 
                 result = cloudinary.uploader.upload(
                     local_image_path,
-                    folder        = folder,   # "PBL5/Recyclable" — folder đã có sẵn, Cloudinary sẽ upload vào đó
-                    public_id     = pub_id,   # "bin_001_1776785890003"
+                    folder        = folder,   # "PBL5/{bin_id}/{category}"
+                    public_id     = pub_id,
                     overwrite     = True,
                     resource_type = "image",
                 )

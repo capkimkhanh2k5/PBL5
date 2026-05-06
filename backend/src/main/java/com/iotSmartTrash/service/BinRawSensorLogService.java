@@ -6,6 +6,8 @@ import com.iotSmartTrash.model.BinRawSensorLog;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import com.google.cloud.firestore.Query;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -13,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+
 
 /**
  * Service quản lý raw sensor logs trên Firestore (subcollection pattern).
@@ -32,6 +35,7 @@ public class BinRawSensorLogService {
      * Raspi gọi mỗi 30 giây để ghi một raw sensor log mới.
      */
     public String addLog(String binId, BinRawSensorLog log) {
+
         try {
             DocumentReference docRef = firestore
                     .collection(PARENT_COLLECTION).document(binId)
@@ -40,14 +44,19 @@ public class BinRawSensorLogService {
 
             // Write canonical snake_case fields for stable querying/indexing.
                 Map<String, Object> payload = new HashMap<>();
-                payload.put("battery_level", safeInt(log.getBatteryLevel()));
+
                 payload.put("fill_organic", safeInt(log.getFillOrganic()));
                 payload.put("fill_recycle", safeInt(log.getFillRecycle()));
                 payload.put("fill_non_recycle", safeInt(log.getFillNonRecycle()));
                 payload.put("fill_hazardous", safeInt(log.getFillHazardous()));
                 payload.put("recorded_at", recordedAt);
 
-            return docRef.set(payload).get().getUpdateTime().toString();
+
+
+            String updateTime = docRef.set(payload).get().getUpdateTime().toString();
+
+
+            return updateTime;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ServiceException("Cannot add raw sensor log: operation interrupted", e);
@@ -184,7 +193,7 @@ public class BinRawSensorLogService {
     private BinRawSensorLog mapRawLog(QueryDocumentSnapshot doc) {
         return BinRawSensorLog.builder()
                 .id(doc.getId())
-                .batteryLevel(getInt(doc, "battery_level"))
+
                 .fillOrganic(getInt(doc, "fill_organic"))
                 .fillRecycle(getInt(doc, "fill_recycle"))
                 .fillNonRecycle(getInt(doc, "fill_non_recycle"))
@@ -215,6 +224,30 @@ public class BinRawSensorLogService {
             }
         }
         return 0L;
+    }
+
+    public BinRawSensorLog getLatestRawLogByBinId(String binId) {
+        try {
+            var snapshot = firestore.collection("bin_raw_sensor_logs")
+                    .document(binId)
+                    .collection("logs")
+                    .orderBy("recorded_at", Query.Direction.DESCENDING)
+                    .limit(1)
+                    .get()
+                    .get();
+
+            if (snapshot.isEmpty()) {
+                throw new ServiceException("No raw sensor logs found for bin: " + binId);
+            }
+
+            var doc = snapshot.getDocuments().get(0);
+            return mapRawLog(doc);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot get latest raw log: operation interrupted", e);
+        } catch (Exception e) {
+            throw new ServiceException("Cannot get latest raw log for bin: " + binId, e);
+        }
     }
 
 }

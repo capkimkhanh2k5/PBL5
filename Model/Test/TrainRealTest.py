@@ -59,8 +59,8 @@ MODEL_DIR  = os.path.dirname(SCRIPT_DIR)
 # ============================================================
 
 CAMERA_ID  = 0
-ONNX_PATH  = os.path.join(MODEL_DIR, "Train", "outputs", "waste_detector.onnx")
-META_PATH  = os.path.join(MODEL_DIR, "Train", "outputs", "model_meta.json")
+ONNX_PATH  = os.path.join(MODEL_DIR, "Train", "outputs_v2", "waste_detector_v2.onnx")
+META_PATH  = os.path.join(MODEL_DIR, "Train", "outputs_v2", "model_meta.json")
 IMG_SIZE   = 384
 
 N_TTA          = 1
@@ -769,7 +769,7 @@ STATE_COOLDOWN  = "COOLDOWN"
 # 15. CAMERA & BACKGROUND SUBTRACTOR
 # ============================================================
 
-cap = cv2.VideoCapture("http://192.168.1.16:4747/video")
+cap = cv2.VideoCapture("http://192.168.4.54:4747/video")
 if not cap.isOpened():
     raise RuntimeError(f"[FATAL] Không mở được camera ID={CAMERA_ID}")
 
