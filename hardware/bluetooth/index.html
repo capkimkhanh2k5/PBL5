@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>SmartBin Setup</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg:         #0a0e14;
+    --surface:    #111820;
+    --surface2:   #1a2330;
+    --border:     #1e2d3d;
+    --accent:     #00e5ff;
+    --accent2:    #7c3aed;
+    --success:    #00c896;
+    --danger:     #ff4560;
+    --warning:    #ffb800;
+    --text:       #e8f4f8;
+    --muted:      #4a6580;
+    --glow:       0 0 20px rgba(0,229,255,0.25);
+    --glow-s:     0 0 12px rgba(0,229,255,0.15);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 48px;
+  }
+
+  /* Header */
+  .header {
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .logo {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+    flex-shrink: 0;
+    box-shadow: var(--glow);
+  }
+  .header-text h1 {
+    font-size: 20px; font-weight: 800;
+    letter-spacing: -0.5px;
+    line-height: 1;
+  }
+  .header-text p {
+    font-size: 11px; color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    margin-top: 2px;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+
+  /* Card */
+  .card {
+    width: 100%; max-width: 480px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 24px;
+    margin-bottom: 16px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+  .card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.4;
+  }
+  .card.active { border-color: rgba(0,229,255,0.3); }
+  .card.success { border-color: rgba(0,200,150,0.4); }
+  .card.error   { border-color: rgba(255,69,96,0.4); }
+
+  .card-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 20px;
+  }
+  .step-badge {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 1.5px solid var(--muted);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: var(--muted);
+    flex-shrink: 0;
+    font-family: 'DM Mono', monospace;
+    transition: all 0.3s;
+  }
+  .step-badge.done {
+    border-color: var(--success); color: var(--success);
+    background: rgba(0,200,150,0.1);
+  }
+  .step-badge.active {
+    border-color: var(--accent); color: var(--accent);
+    background: rgba(0,229,255,0.1);
+    box-shadow: var(--glow-s);
+  }
+  .card-title { font-size: 15px; font-weight: 700; }
+  .card-subtitle { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+  /* BLE Device List */
+  .device-list {
+    display: flex; flex-direction: column; gap: 8px;
+    margin-bottom: 16px;
+    max-height: 220px; overflow-y: auto;
+  }
+  .device-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .device-item:hover { border-color: var(--accent); background: rgba(0,229,255,0.05); }
+  .device-item.selected { border-color: var(--accent); background: rgba(0,229,255,0.08); }
+  .device-icon { font-size: 20px; flex-shrink: 0; }
+  .device-name { font-size: 14px; font-weight: 600; flex: 1; }
+  .device-rssi { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+  .device-check { color: var(--accent); font-size: 16px; opacity: 0; transition: opacity 0.2s; }
+  .device-item.selected .device-check { opacity: 1; }
+
+  /* Signal bars */
+  .signal { display: flex; align-items: flex-end; gap: 2px; }
+  .signal span {
+    width: 3px; border-radius: 1px;
+    background: var(--muted);
+    transition: background 0.2s;
+  }
+  .signal span:nth-child(1) { height: 4px; }
+  .signal span:nth-child(2) { height: 7px; }
+  .signal span:nth-child(3) { height: 10px; }
+  .signal span:nth-child(4) { height: 13px; }
+  .signal.strong span { background: var(--success); }
+  .signal.medium span:nth-child(-n+3) { background: var(--warning); }
+  .signal.weak span:nth-child(1) { background: var(--danger); }
+
+  /* Form */
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block;
+    font-size: 11px; font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 6px;
+    font-family: 'DM Mono', monospace;
+  }
+  .field-wrap { position: relative; }
+  .field input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 11px 40px 11px 14px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: 'DM Mono', monospace;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .field input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0,229,255,0.1);
+  }
+  .field input::placeholder { color: var(--muted); }
+  .toggle-pw {
+    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); font-size: 16px; padding: 2px;
+    transition: color 0.2s;
+  }
+  .toggle-pw:hover { color: var(--accent); }
+
+  /* Buttons */
+  .btn {
+    width: 100%;
+    padding: 13px 20px;
+    border: none; border-radius: 12px;
+    font-family: 'Syne', sans-serif;
+    font-size: 14px; font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    color: #000;
+    box-shadow: 0 4px 20px rgba(0,229,255,0.2);
+  }
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: 0 4px 28px rgba(0,229,255,0.4);
+    transform: translateY(-1px);
+  }
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    border-color: var(--accent); color: var(--accent);
+  }
+  .btn-sm { padding: 9px 16px; font-size: 13px; width: auto; border-radius: 9px; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 13px; font-weight: 600;
+    margin-bottom: 14px;
+    transition: all 0.3s;
+  }
+  .status-bar.info    { background: rgba(0,229,255,0.08);  border: 1px solid rgba(0,229,255,0.2);  color: var(--accent); }
+  .status-bar.success { background: rgba(0,200,150,0.08);  border: 1px solid rgba(0,200,150,0.2);  color: var(--success); }
+  .status-bar.error   { background: rgba(255,69,96,0.08);  border: 1px solid rgba(255,69,96,0.2);  color: var(--danger); }
+  .status-bar.warning { background: rgba(255,184,0,0.08);  border: 1px solid rgba(255,184,0,0.2);  color: var(--warning); }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: currentColor; flex-shrink: 0;
+  }
+  .status-dot.pulse {
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  /* Spinner */
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(0,229,255,0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Progress steps */
+  .progress-steps {
+    display: flex; gap: 0;
+    margin-bottom: 28px; width: 100%; max-width: 480px;
+  }
+  .progress-step {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    position: relative;
+  }
+  .progress-step + .progress-step::before {
+    content: '';
+    position: absolute; top: 14px; right: 50%;
+    width: 100%; height: 2px;
+    background: var(--border);
+    z-index: 0;
+    transition: background 0.4s;
+  }
+  .progress-step.done + .progress-step::before { background: var(--success); }
+  .ps-dot {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: var(--muted);
+    position: relative; z-index: 1;
+    transition: all 0.3s;
+    font-family: 'DM Mono', monospace;
+  }
+  .progress-step.active .ps-dot { border-color: var(--accent); color: var(--accent); background: rgba(0,229,255,0.1); box-shadow: var(--glow-s); }
+  .progress-step.done .ps-dot   { border-color: var(--success); background: var(--success); color: #000; }
+  .ps-label { font-size: 10px; color: var(--muted); margin-top: 5px; text-align: center; letter-spacing: 0.3px; }
+  .progress-step.active .ps-label { color: var(--accent); }
+  .progress-step.done .ps-label   { color: var(--success); }
+
+  /* No BLE notice */
+  .notice {
+    padding: 12px 16px;
+    background: rgba(255,184,0,0.06);
+    border: 1px solid rgba(255,184,0,0.2);
+    border-radius: 10px;
+    font-size: 12px;
+    color: var(--warning);
+    line-height: 1.6;
+    margin-bottom: 14px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* UUID info */
+  .uuid-info {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    word-break: break-all;
+    line-height: 1.8;
+  }
+  .uuid-row { display: flex; gap: 8px; align-items: flex-start; }
+  .uuid-label { color: var(--accent); flex-shrink: 0; min-width: 60px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Responsive */
+  @media (max-width: 400px) {
+    .card { padding: 18px; }
+    .header-text h1 { font-size: 17px; }
+  }
+
+  /* Success animation */
+  @keyframes checkPop {
+    0%   { transform: scale(0); opacity: 0; }
+    70%  { transform: scale(1.2); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .check-anim { animation: checkPop 0.4s ease forwards; }
+
+  /* Fade in */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in { animation: fadeUp 0.35s ease both; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="header fade-in">
+    <div class="logo">🗑️</div>
+    <div class="header-text">
+      <h1>SmartBin Setup</h1>
+      <p>WiFi Configuration via BLE</p>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-steps fade-in" id="progressSteps">
+    <div class="progress-step active" id="ps1">
+      <div class="ps-dot">1</div>
+      <div class="ps-label">Quét BLE</div>
+    </div>
+    <div class="progress-step" id="ps2">
+      <div class="ps-dot">2</div>
+      <div class="ps-label">Xác thực</div>
+    </div>
+    <div class="progress-step" id="ps3">
+      <div class="ps-dot">3</div>
+      <div class="ps-label">WiFi</div>
+    </div>
+    <div class="progress-step" id="ps4">
+      <div class="ps-dot">✓</div>
+      <div class="ps-label">Xong</div>
+    </div>
+  </div>
+
+  <!-- Step 1: Scan -->
+  <div class="card active fade-in" id="stepScan">
+    <div class="card-header">
+      <div class="step-badge active" id="badge1">1</div>
+      <div>
+        <div class="card-title">Tìm kiếm thiết bị SmartBin</div>
+        <div class="card-subtitle">Đảm bảo Bluetooth đang bật</div>
+      </div>
+    </div>
+
+    <div id="bleNotice" class="notice" style="display:none">
+      ⚠️ Trình duyệt này không hỗ trợ Web Bluetooth. Sử dụng Chrome/Edge trên Android/Desktop.
+    </div>
+
+    <div class="device-list" id="deviceList">
+      <div style="text-align:center;color:var(--muted);padding:24px;font-size:13px">
+        Nhấn "Quét" để tìm thiết bị...
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" id="btnScan" onclick="startScan()">
+        <span>📡</span> Quét Bluetooth
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 2: Auth -->
+  <div class="card fade-in" id="stepAuth" style="opacity:0.4;pointer-events:none">
+    <div class="card-header">
+      <div class="step-badge" id="badge2">2</div>
+      <div>
+        <div class="card-title">Xác thực thiết bị</div>
+        <div class="card-subtitle">Nhập Secret Key của SmartBin</div>
+      </div>
+    </div>
+
+    <div id="authStatus"></div>
+
+    <div class="field">
+      <label>Secret Key</label>
+      <div class="field-wrap">
+        <input type="password" id="secretKey" placeholder="Ví dụ: SB-A1B2C3D4E5F6G7H8"
+               maxlength="64" autocomplete="off" spellcheck="false">
+        <button class="toggle-pw" onclick="togglePw('secretKey',this)" title="Hiện/Ẩn">👁</button>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="btnAuth" onclick="doAuth()">
+      <span>🔑</span> Xác thực
+    </button>
+  </div>
+
+  <!-- Step 3: WiFi -->
+  <div class="card fade-in" id="stepWifi" style="opacity:0.4;pointer-events:none">
+    <div class="card-header">
+      <div class="step-badge" id="badge3">3</div>
+      <div>
+        <div class="card-title">Cấu hình WiFi</div>
+        <div class="card-subtitle">Gửi thông tin mạng tới thiết bị</div>
+      </div>
+    </div>
+
+    <div id="wifiStatus"></div>
+
+    <div class="field">
+      <label>Tên mạng (SSID)</label>
+      <div class="field-wrap">
+        <input type="text" id="wifiSSID" placeholder="Tên mạng WiFi"
+               autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="field">
+      <label>Mật khẩu WiFi</label>
+      <div class="field-wrap">
+        <input type="password" id="wifiPass" placeholder="Mật khẩu WiFi"
+               autocomplete="off" spellcheck="false">
+        <button class="toggle-pw" onclick="togglePw('wifiPass',this)" title="Hiện/Ẩn">👁</button>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="btnWifi" onclick="doWifiSetup()">
+      <span>📶</span> Gửi cấu hình WiFi
+    </button>
+  </div>
+
+  <!-- Step 4: Done -->
+  <div class="card fade-in" id="stepDone" style="display:none">
+    <div style="text-align:center;padding:16px 0">
+      <div style="font-size:56px;margin-bottom:12px" class="check-anim">✅</div>
+      <h2 style="font-size:20px;font-weight:800;margin-bottom:8px">Cấu hình thành công!</h2>
+      <p style="color:var(--muted);font-size:13px;line-height:1.6">
+        SmartBin đã nhận thông tin WiFi và đang kết nối.<br>
+        Thiết bị sẽ tự động sử dụng mạng mới.
+      </p>
+      <div id="doneDeviceInfo" style="margin-top:16px;font-family:'DM Mono',monospace;font-size:11px;color:var(--accent)"></div>
+      <button class="btn btn-secondary" style="margin-top:20px;max-width:200px;margin-left:auto;margin-right:auto"
+              onclick="resetApp()">🔄 Cấu hình thiết bị khác</button>
+    </div>
+  </div>
+
+  <!-- UUID reference (collapsible) -->
+  <div class="card fade-in" style="opacity:0.6;margin-top:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"
+         onclick="toggleUUIDs()">
+      <span style="font-size:12px;color:var(--muted);font-family:'DM Mono',monospace">BLE UUIDs Reference</span>
+      <span id="uuidArrow" style="color:var(--muted)">▼</span>
+    </div>
+    <div id="uuidPanel" style="display:none;margin-top:12px">
+      <div class="uuid-info" id="uuidInfo"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── BLE UUIDs ───────────────────────────────────────────────────────────────
+const UUIDS = {
+  SERVICE:  '12345678-1234-5678-1234-56789abcdef0',
+  AUTH_KEY: '12345678-1234-5678-1234-56789abcdef1',
+  SSID:     '12345678-1234-5678-1234-56789abcdef2',
+  PASSWORD: '12345678-1234-5678-1234-56789abcdef3',
+  STATUS:   '12345678-1234-5678-1234-56789abcdef4',
+  DEV_INFO: '12345678-1234-5678-1234-56789abcdef5',
+};
+
+// Populate UUID panel
+document.getElementById('uuidInfo').innerHTML = Object.entries(UUIDS)
+  .map(([k,v]) => `<div class="uuid-row"><span class="uuid-label">${k}</span><span>${v}</span></div>`)
+  .join('');
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let bleDevice = null;
+let bleServer = null;
+let bleService = null;
+let authChar = null, ssidChar = null, passChar = null, statusChar = null;
+let currentStep = 1;
+let demoMode = false;
+
+const STATUS_CODES = {
+  '00': { text: 'Sẵn sàng',           type: 'info' },
+  '01': { text: 'Xác thực thành công', type: 'success' },
+  '02': { text: 'Sai secret key',      type: 'error' },
+  '03': { text: 'Bị khóa (quá nhiều lần thử)', type: 'error' },
+  '04': { text: 'Đang lưu WiFi...',    type: 'info' },
+  '05': { text: 'WiFi đã lưu',         type: 'success' },
+  '06': { text: 'Lỗi cấu hình WiFi',   type: 'error' },
+  '07': { text: 'Đang kết nối WiFi...', type: 'info' },
+  '08': { text: 'WiFi đã kết nối ✓',   type: 'success' },
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const enc = str => new TextEncoder().encode(str);
+
+function showStatus(elId, code, extraText = '') {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const info = STATUS_CODES[code] || { text: `Status ${code}`, type: 'info' };
+  const text = extraText || info.text;
+  const loading = ['04','07'].includes(code);
+  el.innerHTML = `
+    <div class="status-bar ${info.type}">
+      ${loading
+        ? '<div class="spinner"></div>'
+        : `<div class="status-dot ${['info'].includes(info.type)?'pulse':''}"></div>`}
+      <span>${text}</span>
+    </div>`;
+}
+
+function setStepActive(step) {
+  currentStep = step;
+  ['stepScan','stepAuth','stepWifi'].forEach((id,i) => {
+    const el = document.getElementById(id);
+    el.style.opacity = i+1 <= step ? '1' : '0.4';
+    el.style.pointerEvents = i+1 === step ? 'auto' : 'none';
+    el.classList.toggle('active', i+1 === step);
+  });
+  // Progress
+  ['ps1','ps2','ps3','ps4'].forEach((id,i) => {
+    const el = document.getElementById(id);
+    el.classList.toggle('done',   i+1 < step);
+    el.classList.toggle('active', i+1 === step);
+    el.querySelector('.ps-dot').textContent = i+1 < step ? '✓' : (i+1);
+  });
+}
+
+function togglePw(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.textContent = show ? '🙈' : '👁';
+}
+
+function toggleUUIDs() {
+  const panel = document.getElementById('uuidPanel');
+  const arrow = document.getElementById('uuidArrow');
+  const open = panel.style.display === 'none';
+  panel.style.display = open ? 'block' : 'none';
+  arrow.textContent = open ? '▲' : '▼';
+}
+
+async function readStatus() {
+  const statusVal = await statusChar.readValue();
+  const statusText = new TextDecoder().decode(statusVal);
+  try {
+    return JSON.parse(statusText);
+  } catch {
+    return { code: statusText.substring(0, 2), error: '' };
+  }
+}
+
+// ─── Check BLE support ───────────────────────────────────────────────────────
+function checkBLESupport() {
+  if (!window.isSecureContext || !navigator.bluetooth) {
+    document.getElementById('bleNotice').style.display = 'block';
+    demoMode = true;
+    console.warn('Web Bluetooth not available — demo mode');
+  }
+}
+checkBLESupport();
+
+// ─── Step 1: Scan ────────────────────────────────────────────────────────────
+async function startScan() {
+  const btn = document.getElementById('btnScan');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Đang quét...';
+
+  if (demoMode) {
+    await simulateScan();
+    btn.disabled = false;
+    btn.innerHTML = '<span>📡</span> Quét lại';
+    return;
+  }
+
+  try {
+    bleDevice = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [UUIDS.SERVICE] }],
+      optionalServices: [UUIDS.SERVICE],
+    });
+    bleDevice.addEventListener('gattserverdisconnected', () => {
+      if (currentStep < 4) showStatus('authStatus', '02', 'Mất kết nối BLE. Hãy quét lại thiết bị.');
+    });
+    renderDeviceList([{ name: bleDevice.name || 'SmartBin', rssi: -60 }]);
+    selectDevice(0);
+  } catch (err) {
+    console.error('BLE scan error:', err);
+    renderDeviceList([]);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span>📡</span> Quét lại';
+  }
+}
+
+async function simulateScan() {
+  const list = document.getElementById('deviceList');
+  list.innerHTML = '<div style="text-align:center;color:var(--muted);padding:16px;font-size:13px"><div class="spinner" style="margin:0 auto 8px"></div>Đang quét...</div>';
+  await new Promise(r => setTimeout(r, 1500));
+  const mockDevices = [
+    { name: 'SmartBin-001', rssi: -45 },
+    { name: 'SmartBin-002', rssi: -72 },
+  ];
+  renderDeviceList(mockDevices);
+}
+
+function renderDeviceList(devices) {
+  const list = document.getElementById('deviceList');
+  if (!devices.length) {
+    list.innerHTML = '<div style="text-align:center;color:var(--muted);padding:24px;font-size:13px">Không tìm thấy thiết bị. Thử lại?</div>';
+    return;
+  }
+  list.innerHTML = devices.map((d, i) => {
+    const strength = d.rssi > -55 ? 'strong' : d.rssi > -70 ? 'medium' : 'weak';
+    return `
+      <div class="device-item" id="dev${i}" onclick="selectDevice(${i})">
+        <div class="device-icon">🗑️</div>
+        <div>
+          <div class="device-name">${d.name}</div>
+          <div class="device-rssi">${d.rssi} dBm</div>
+        </div>
+        <div class="signal ${strength}">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div class="device-check">✓</div>
+      </div>`;
+  }).join('');
+  if (devices.length === 1) selectDevice(0);
+}
+
+function selectDevice(idx) {
+  document.querySelectorAll('.device-item').forEach((el,i) => {
+    el.classList.toggle('selected', i === idx);
+  });
+  // Unlock step 2
+  setStepActive(2);
+  document.getElementById('badge1').classList.replace('active','done');
+  document.getElementById('badge1').textContent = '✓';
+  document.getElementById('badge2').classList.add('active');
+}
+
+// ─── Step 2: Auth ────────────────────────────────────────────────────────────
+async function doAuth() {
+  const key = document.getElementById('secretKey').value.trim();
+  if (!key) { alert('Vui lòng nhập Secret Key'); return; }
+
+  const btn = document.getElementById('btnAuth');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Đang xác thực...';
+  showStatus('authStatus', '04', 'Đang kết nối & xác thực...');
+
+  try {
+    if (demoMode) {
+      await new Promise(r => setTimeout(r, 1200));
+      // Demo: chấp nhận bất kỳ key nào (trong thực tế Pi4 sẽ verify)
+      showStatus('authStatus', '01');
+      afterAuthSuccess();
+      return;
+    }
+
+    // Kết nối BLE
+    bleServer  = await bleDevice.gatt.connect();
+    bleService = await bleServer.getPrimaryService(UUIDS.SERVICE);
+    authChar   = await bleService.getCharacteristic(UUIDS.AUTH_KEY);
+    ssidChar   = await bleService.getCharacteristic(UUIDS.SSID);
+    passChar   = await bleService.getCharacteristic(UUIDS.PASSWORD);
+    statusChar = await bleService.getCharacteristic(UUIDS.STATUS);
+
+    // Gửi secret key
+    await authChar.writeValueWithResponse(enc(key));
+    await new Promise(r => setTimeout(r, 600));
+
+    // Đọc status từ Pi4
+    const statusObj = await readStatus();
+
+    if (statusObj.code === '01') {
+      showStatus('authStatus', '01');
+      afterAuthSuccess(statusObj.device);
+    } else if (statusObj.code === '03') {
+      showStatus('authStatus', '03', statusObj.error || 'Bị khóa (quá nhiều lần thử)');
+    } else {
+      showStatus('authStatus', '02', statusObj.error || 'Sai secret key');
+    }
+  } catch (err) {
+    console.error('Auth error:', err);
+    showStatus('authStatus', '02', `Lỗi: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span>🔑</span> Xác thực';
+  }
+}
+
+function afterAuthSuccess(deviceId) {
+  setStepActive(3);
+  document.getElementById('badge2').classList.replace('active','done');
+  document.getElementById('badge2').textContent = '✓';
+  document.getElementById('badge3').classList.add('active');
+  if (deviceId) {
+    document.getElementById('wifiStatus').innerHTML = `
+      <div class="status-bar success" style="font-size:12px">
+        <div class="status-dot"></div>
+        <span>Đã kết nối tới: <strong>${deviceId}</strong></span>
+      </div>`;
+  }
+}
+
+// ─── Step 3: WiFi ────────────────────────────────────────────────────────────
+async function doWifiSetup() {
+  const ssid = document.getElementById('wifiSSID').value.trim();
+  const pass = document.getElementById('wifiPass').value;
+  if (!ssid) { alert('Vui lòng nhập tên mạng WiFi'); return; }
+
+  const btn = document.getElementById('btnWifi');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Đang gửi...';
+  showStatus('wifiStatus', '04', 'Đang gửi SSID...');
+
+  try {
+    if (demoMode) {
+      await new Promise(r => setTimeout(r, 800));
+      showStatus('wifiStatus', '07', 'Đang kết nối WiFi trên thiết bị...');
+      await new Promise(r => setTimeout(r, 1500));
+      showStatus('wifiStatus', '08');
+      await new Promise(r => setTimeout(r, 800));
+      showSuccess(ssid);
+      return;
+    }
+
+    // Gửi SSID
+    await ssidChar.writeValueWithResponse(enc(ssid));
+    showStatus('wifiStatus', '04', 'Đang gửi mật khẩu...');
+    await new Promise(r => setTimeout(r, 400));
+
+    // Gửi Password (trigger Pi4 kết nối)
+    await passChar.writeValueWithResponse(enc(pass));
+    showStatus('wifiStatus', '07', 'Đang kết nối WiFi trên thiết bị...');
+
+    // Poll status
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        const obj = await readStatus();
+        if (obj.code === '08') { showSuccess(ssid, obj.device); return; }
+        if (obj.code === '06') {
+          showStatus('wifiStatus', '06', obj.error || 'Lỗi cấu hình WiFi');
+          return;
+        }
+        if (obj.code === '04') showStatus('wifiStatus', '04', 'Đang lưu cấu hình...');
+        if (obj.code === '07') showStatus('wifiStatus', '07', 'Đang kết nối mạng...');
+      } catch (pollErr) {
+        console.warn('Status poll error:', pollErr);
+      }
+    }
+    showStatus('wifiStatus', '06', 'Quá thời gian chờ. Kiểm tra lại WiFi hoặc log trên Pi4.');
+
+  } catch (err) {
+    console.error('WiFi setup error:', err);
+    showStatus('wifiStatus', '06', `Lỗi: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span>📶</span> Gửi cấu hình WiFi';
+  }
+}
+
+function showSuccess(ssid, deviceId) {
+  currentStep = 4;
+  document.getElementById('stepScan').style.display  = 'none';
+  document.getElementById('stepAuth').style.display  = 'none';
+  document.getElementById('stepWifi').style.display  = 'none';
+  document.getElementById('stepDone').style.display  = 'block';
+  // Done progress
+  ['ps1','ps2','ps3','ps4'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.add('done'); el.classList.remove('active');
+    el.querySelector('.ps-dot').textContent = '✓';
+  });
+  document.getElementById('doneDeviceInfo').innerHTML =
+    `📶 Mạng: <strong>${ssid}</strong>${deviceId ? ` &nbsp;|&nbsp; 🗑️ ${deviceId}` : ''}`;
+  if (bleDevice?.gatt?.connected) bleDevice.gatt.disconnect();
+}
+
+function resetApp() {
+  location.reload();
+}
+</script>
+</body>
+</html>

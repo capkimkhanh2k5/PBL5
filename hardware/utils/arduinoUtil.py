@@ -19,8 +19,8 @@ Yêu cầu:
 """
 
 import time
-import json
 import threading
+import random
 from typing import Optional, Callable
 
 import serial
@@ -34,14 +34,32 @@ ARDUINO_BAUDRATE   = 9600
 ARDUINO_TIMEOUT    = 8.0           # giây chờ ACK lệnh servo
 ARDUINO_ACK_PREFIX = "Hoan thanh"  # prefix phản hồi từ Arduino
 
-# Độ sâu (cm) khi ngăn rác CÒN TRỐNG hoàn toàn — dùng để tính % đầy.
-# Chỉnh lại theo kích thước thực tế của từng ngăn khi lắp cảm biến.
-BIN_DEPTH_CM = {
-    "ORGANIC":    30.0,
-    "RECYCLABLE": 30.0,
-    "HAZARDOUS":  20.0,
-    "OTHER":      30.0,
+# Các khoảng đệm để Serial/servo/cảm biến có thời gian ổn định.
+# Có thể tăng nhẹ nếu phần cứng phản hồi chập chờn.
+ARDUINO_BOOT_DELAY_SEC          = 2.5
+ARDUINO_READY_TIMEOUT_SEC       = 6.0
+ARDUINO_BEFORE_WRITE_DELAY_SEC  = 0.08
+ARDUINO_AFTER_WRITE_DELAY_SEC   = 0.08
+ARDUINO_AFTER_ACK_DELAY_SEC     = 0.35
+ARDUINO_BEFORE_SENSOR_DELAY_SEC = 0.50
+ARDUINO_SENSOR_RETRY_DELAY_SEC  = 0.20
+
+# Khoảng cách từ cảm biến siêu âm tới đáy/ngưỡng rỗng của từng ngăn.
+# Khi chưa có rác, cảm biến đọc khoảng 41cm.
+BIN_EMPTY_DISTANCE_CM = {
+    "ORGANIC":    41.0,
+    "RECYCLABLE": 41.0,
+    "HAZARDOUS":  41.0,
+    "OTHER":      41.0,
 }
+
+# Chiều cao vùng chứa rác thực tế. Khi rác cao 27cm thì xem là đầy 100%.
+BIN_TRASH_HEIGHT_CM = 27.0
+SIMULATED_DROP_MIN_RATIO = 0.05
+SIMULATED_DROP_MAX_RATIO = 0.10
+
+# Backward-compatible alias nếu module khác còn import BIN_DEPTH_CM.
+BIN_DEPTH_CM = BIN_EMPTY_DISTANCE_CM
 
 # Map ngăn → Arduino command
 BIN_TO_ARDUINO_CMD = {
@@ -58,6 +76,36 @@ BIN_TO_SENSOR_KEY = {
     "HAZARDOUS":  "haz",
     "OTHER":      "oth",
 }
+
+_simulated_fill_lock = threading.Lock()
+_simulated_distance_cm = dict(BIN_EMPTY_DISTANCE_CM)
+
+
+def _distance_to_fill_pct(bin_name: str, distance_cm: float) -> float:
+    """Tính % đầy từ khoảng cách siêu âm theo mô hình 41cm rỗng, 27cm chiều cao thùng."""
+    empty_distance = BIN_EMPTY_DISTANCE_CM.get(bin_name, 41.0)
+    filled_height = empty_distance - distance_cm
+    fill_pct = (filled_height / BIN_TRASH_HEIGHT_CM) * 100.0
+    return round(max(0.0, min(100.0, fill_pct)), 1)
+
+
+def _min_distance_for_full(bin_name: str) -> float:
+    return BIN_EMPTY_DISTANCE_CM.get(bin_name, 41.0) - BIN_TRASH_HEIGHT_CM
+
+
+def _build_fill_result(distance_by_bin: dict) -> dict:
+    result = {}
+    for bin_name in BIN_TO_SENSOR_KEY.keys():
+        dist = float(distance_by_bin.get(bin_name, BIN_EMPTY_DISTANCE_CM.get(bin_name, 41.0)))
+        if dist < 0:
+            fill_pct = None
+        else:
+            fill_pct = _distance_to_fill_pct(bin_name, dist)
+        result[bin_name] = {
+            "distance_cm": round(dist, 1),
+            "fill_pct":    fill_pct,
+        }
+    return result
 
 # ============================================================
 # KHỞI TẠO
@@ -103,11 +151,11 @@ def init_arduino(port: Optional[str] = None):
         return None
     try:
         ser = serial.Serial(selected_port, ARDUINO_BAUDRATE, timeout=1)
-        time.sleep(2.0)   # Chờ Arduino reset sau khi mở serial
+        time.sleep(ARDUINO_BOOT_DELAY_SEC)   # Chờ Arduino reset sau khi mở serial
         ser.reset_input_buffer()
 
         # Chờ "Ready" từ Arduino
-        deadline = time.time() + 5.0
+        deadline = time.time() + ARDUINO_READY_TIMEOUT_SEC
         while time.time() < deadline:
             line = ser.readline().decode('utf-8', errors='ignore').strip()
             if line == "Ready":
@@ -155,7 +203,10 @@ def arduino_send_command(
             else:
                 with _arduino_lock:
                     arduino_serial.reset_input_buffer()
+                    time.sleep(ARDUINO_BEFORE_WRITE_DELAY_SEC)
                     arduino_serial.write(cmd.encode())
+                    arduino_serial.flush()
+                    time.sleep(ARDUINO_AFTER_WRITE_DELAY_SEC)
                     print(f"[ARDUINO] Gửi lệnh '{cmd}' → {bin_type}")
 
                     deadline = time.time() + ARDUINO_TIMEOUT
@@ -169,6 +220,7 @@ def arduino_send_command(
                             break
                     else:
                         print(f"[ARDUINO] TIMEOUT chờ ACK ({ARDUINO_TIMEOUT}s)")
+                    time.sleep(ARDUINO_AFTER_ACK_DELAY_SEC)
         except Exception as e:
             print(f"[ARDUINO ERROR] send_command: {e}")
         finally:
@@ -191,11 +243,11 @@ def read_fill_levels(
     Gửi lệnh 'F' đến Arduino để lấy khoảng cách từ 4 cảm biến siêu âm,
     sau đó tính phần trăm đầy cho từng ngăn.
 
-    Protocol Arduino (cần thêm vào file .ino):
+    Protocol Arduino (.ino đã tích hợp):
         - Nhận ký tự 'F'
-        - Đo 4 cảm biến, trả về JSON 1 dòng:
-          {"org":12,"rec":34,"haz":5,"oth":67}   ← khoảng cách (cm)
-        - Nếu cảm biến lỗi, trả giá trị -1 cho key đó.
+        - Đo 4 cảm biến, trả về 1 dòng dạng:
+          DIST:12.3,8.5,25.0,-1   ← khoảng cách (cm), thứ tự: org,rec,haz,oth
+        - Nếu cảm biến lỗi, trả giá trị -1 cho ngăn đó.
 
     Args:
         arduino_serial: serial.Serial từ init_arduino(). None → trả None.
@@ -223,42 +275,41 @@ def read_fill_levels(
     try:
         with _arduino_lock:
             arduino_serial.reset_input_buffer()
+            time.sleep(ARDUINO_BEFORE_SENSOR_DELAY_SEC)
             arduino_serial.write(b'F')
+            arduino_serial.flush()
+            time.sleep(ARDUINO_AFTER_WRITE_DELAY_SEC)
             print("[ARDUINO] Gửi lệnh 'F' — đọc mức đầy cảm biến siêu âm")
 
             deadline = time.time() + timeout
+            dist_values = None
             while time.time() < deadline:
                 raw = arduino_serial.readline().decode('utf-8', errors='ignore').strip()
                 if not raw:
+                    time.sleep(ARDUINO_SENSOR_RETRY_DELAY_SEC)
                     continue
                 print(f"[ARDUINO] ← {raw}")
-                try:
-                    sensor_data = json.loads(raw)
-                    break
-                except json.JSONDecodeError:
-                    # Bỏ qua dòng không phải JSON (vd: dòng debug)
-                    continue
+                # Định dạng: DIST:12.3,8.5,25.0,-1  (thứ tự: org, rec, haz, oth)
+                if raw.startswith("DIST:"):
+                    try:
+                        parts = raw[5:].split(",")  # bỏ "DIST:"
+                        if len(parts) == 4:
+                            dist_values = [float(p) for p in parts]
+                            break
+                    except ValueError:
+                        pass  # format lỗi → đọc tiếp
+                # Bỏ qua các dòng debug khác
             else:
                 print("[ARDUINO] TIMEOUT đọc mức đầy cảm biến")
                 return None
 
-        result = {}
-        for bin_name, sensor_key in BIN_TO_SENSOR_KEY.items():
-            dist = float(sensor_data.get(sensor_key, -1))
-            depth = BIN_DEPTH_CM.get(bin_name, 30.0)
+        # Ghép dist_values theo thứ tự: ORGANIC, RECYCLABLE, HAZARDOUS, OTHER
+        bin_order = list(BIN_TO_SENSOR_KEY.keys())
+        distance_by_bin = {}
+        for i, bin_name in enumerate(bin_order):
+            distance_by_bin[bin_name] = dist_values[i]
 
-            if dist < 0:
-                fill_pct = None          # cảm biến báo lỗi
-            else:
-                # Khi dist = 0 → đầy 100%, khi dist = depth → đầy 0%
-                fill_pct = round((1.0 - dist / depth) * 100.0, 1)
-                fill_pct = max(0.0, min(100.0, fill_pct))
-
-            result[bin_name] = {
-                "distance_cm": dist,
-                "fill_pct":    fill_pct,
-            }
-
+        result = _build_fill_result(distance_by_bin)
         print(f"[ARDUINO] Mức đầy: {result}")
         return result
 
@@ -267,22 +318,34 @@ def read_fill_levels(
         return None
 
 
-def read_fill_levels_simulated() -> dict:
+def read_fill_levels_simulated(added_bin: Optional[str] = None) -> dict:
     """
     Giả lập dữ liệu cảm biến siêu âm — dùng để test phần mềm
     khi chưa có phần cứng thực tế.
 
+    Args:
+        added_bin: Ngăn vừa nhận thêm rác. Nếu truyền vào, khoảng cách siêu âm
+                   của ngăn đó giảm 5-10% chiều cao thùng rác.
+
     Returns:
         Cùng định dạng với read_fill_levels().
     """
-    import random
-    result = {}
-    for bin_name, depth in BIN_DEPTH_CM.items():
-        dist     = round(random.uniform(2.0, depth), 1)
-        fill_pct = round((1.0 - dist / depth) * 100.0, 1)
-        result[bin_name] = {
-            "distance_cm": dist,
-            "fill_pct":    fill_pct,
-        }
+    with _simulated_fill_lock:
+        if added_bin in _simulated_distance_cm:
+            delta = random.uniform(
+                SIMULATED_DROP_MIN_RATIO,
+                SIMULATED_DROP_MAX_RATIO,
+            ) * BIN_TRASH_HEIGHT_CM
+            old_dist = _simulated_distance_cm[added_bin]
+            new_dist = max(_min_distance_for_full(added_bin), old_dist - delta)
+            _simulated_distance_cm[added_bin] = new_dist
+            print(
+                f"[ARDUINO] (simulated) {added_bin}: "
+                f"distance {old_dist:.1f}cm → {new_dist:.1f}cm "
+                f"(+{delta:.1f}cm rác)"
+            )
+
+        result = _build_fill_result(_simulated_distance_cm)
+
     print(f"[ARDUINO] (simulated) Mức đầy: {result}")
     return result
