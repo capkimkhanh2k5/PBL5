@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key, required this.binId});
@@ -15,11 +16,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
   bool _loading = true;
   String? _error;
   List<TrashHistoryItem> _items = const [];
-  String _selectedType = 'GENERAL';
+  String _selectedType = 'General_Waste';
 
   final List<Map<String, String>> _types = [
-    {'key': 'GENERAL', 'label': 'Rác Chung'},
-    {'key': 'BIOLOGICAL', 'label': 'Hữu Cơ'},
+    {'key': 'General_Waste', 'label': 'Rác Chung'},  // ĐỔI 'GENERAL' thành 'General_Waste'
+    {'key': 'ORGANIC', 'label': 'Hữu Cơ'},
     {'key': 'RECYCLABLE', 'label': 'Tái Chế'},
     {'key': 'HAZARDOUS', 'label': 'Nguy Hiểm'},
   ];
@@ -38,23 +39,77 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     try {
       final api = ApiService(authService: _authService);
-      final logs = await api.getClassificationLogs(
-        binId: widget.binId,
-        type: _selectedType,
-        limit: 10,
-      );
+      final Map<String, List<String>> categoryTypes = {
+        'General_Waste': ['General_Waste', 'GENERAL'],
+        'ORGANIC': ['ORGANIC', 'BIOLOGICAL'],
+        'RECYCLABLE': ['RECYCLABLE', 'PLASTIC', 'Plastic', 'Paper_Cardboard', 'METAL', 'GLASS'], // Thêm tất cả ở đây
+        'HAZARDOUS': ['HAZARDOUS', 'Battery', 'BATTERY'],
+      };
+
+      List<Map<String, dynamic>> logs = [];
+
+      if (_selectedType == 'RECYCLABLE') {
+        // Lấy tất cả các loại thuộc nhóm Tái Chế
+        final types = categoryTypes['RECYCLABLE']!;
+        for (var type in types) {
+          final typeLogs = await api.getClassificationLogs(
+            binId: widget.binId,
+            type: type,
+            limit: 10,
+          );
+          logs.addAll(typeLogs);
+        }
+        // Xóa trùng và sắp xếp theo thời gian
+        final uniqueLogs = <String, Map<String, dynamic>>{};
+        for (var log in logs) {
+          uniqueLogs[log['log_id'] ?? log['logId']] = log;
+        }
+        logs = uniqueLogs.values.toList();
+        logs.sort((a, b) {
+          final aTime = (a['classified_at'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+          final bTime = (b['classified_at'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+          return bTime.compareTo(aTime);
+        });
+      } else {
+        logs = await api.getClassificationLogs(
+          binId: widget.binId,
+          type: _selectedType,
+          limit: 10,
+        );
+      }
+      print('=== DEBUG HISTORY ===');
+      print('Số lượng logs: ${logs.length}');
+      print('Bin ID đang query: ${widget.binId}');
+      print('Type đang lọc: $_selectedType');
+
+      print('=== ALL UNIQUE CLASSIFICATION TYPES ===');
+      final uniqueTypes = logs.map((e) => e['classification_result']).toSet();
+      print(uniqueTypes);
+      print('========================================');
+      if (logs.isNotEmpty) {
+        print('Log đầu tiên: ${logs.first}');
+        print('image_url: ${logs.first['image_url'] ?? logs.first['imageUrl']}');
+        print('classification_result: ${logs.first['classification_result'] ?? logs.first['classificationResult']}');
+      }
+      print('=====================');
       final items = logs.map((e) {
         final rawTitle = ((e['classificationResult'] ?? e['classification_result']) ?? 'Unknown').toString();
+        final upperTitle = rawTitle.toUpperCase();
         // Map raw title to label for display
         final labelMap = {
-          'GENERAL': 'Rác Chung',
+
+          'GENERAL_WASTE': 'Rác Chung',
           'BIOLOGICAL': 'Hữu Cơ',
+          'ORGANIC': 'Hữu Cơ',
+          'PLASTIC': 'Tái Chế',      // ← chỉ cần viết hoa
+          'PAPER_CARDBOARD': 'Tái Chế',
           'RECYCLABLE': 'Tái Chế',
+          'BATTERY': 'Nguy Hiểm',
           'HAZARDOUS': 'Nguy Hiểm',
         };
         return TrashHistoryItem(
           imageUrl: ((e['imageUrl'] ?? e['image_url']) ?? '').toString(),
-          title: labelMap[rawTitle.toUpperCase()] ?? rawTitle,
+          title: labelMap[upperTitle] ?? rawTitle,
           confidence: _toDouble(e['confidenceScore'] ?? e['confidence_score']),
         );
       }).toList();

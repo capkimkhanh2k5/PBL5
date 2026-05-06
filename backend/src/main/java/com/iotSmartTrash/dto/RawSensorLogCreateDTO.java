@@ -15,9 +15,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class RawSensorLogCreateDTO {
 
-    @Min(value = 0, message = "Battery level >= 0")
-    @Max(value = 100, message = "Battery level <= 100")
-    private Integer batteryLevel;
 
     @Min(0) @Max(100)
     private Integer fillOrganic;
@@ -36,12 +33,18 @@ public class RawSensorLogCreateDTO {
 
     public BinRawSensorLog toModel() {
         return BinRawSensorLog.builder()
-                .batteryLevel(this.batteryLevel)
                 .fillOrganic(this.fillOrganic)
                 .fillRecycle(this.fillRecycle)
                 .fillNonRecycle(this.fillNonRecycle)
                 .fillHazardous(this.fillHazardous)
-                .recordedAt(this.recordedAt)
+                .recordedAt(
+                        this.recordedAt != null
+                                ? com.google.cloud.Timestamp.ofTimeSecondsAndNanos(
+                                this.recordedAt / 1000,
+                                (int)((this.recordedAt % 1000) * 1_000_000)
+                        )
+                                : null
+                )
                 .build();
     }
 }

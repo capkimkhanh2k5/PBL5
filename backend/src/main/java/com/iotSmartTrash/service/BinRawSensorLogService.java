@@ -40,17 +40,20 @@ public class BinRawSensorLogService {
             DocumentReference docRef = firestore
                     .collection(PARENT_COLLECTION).document(binId)
                     .collection(SUB_COLLECTION).document();
-            long recordedAt = log.getRecordedAt() != null ? log.getRecordedAt() : System.currentTimeMillis();
-
+            long recordedAt = log.getRecordedAt() != null
+                    ? log.getRecordedAt().toDate().getTime()
+                    : System.currentTimeMillis();
             // Write canonical snake_case fields for stable querying/indexing.
                 Map<String, Object> payload = new HashMap<>();
 
-                payload.put("fill_organic", safeInt(log.getFillOrganic()));
-                payload.put("fill_recycle", safeInt(log.getFillRecycle()));
-                payload.put("fill_non_recycle", safeInt(log.getFillNonRecycle()));
-                payload.put("fill_hazardous", safeInt(log.getFillHazardous()));
-                payload.put("recorded_at", recordedAt);
-
+                payload.put("fillOrganic", safeInt(log.getFillOrganic()));
+                payload.put("fillRecycle", safeInt(log.getFillRecycle()));
+                payload.put("fillNonRecycle", safeInt(log.getFillNonRecycle()));
+                payload.put("fillHazardous", safeInt(log.getFillHazardous()));
+                payload.put("recordedAt", com.google.cloud.Timestamp.ofTimeSecondsAndNanos(
+                    recordedAt / 1000,
+                    (int) ((recordedAt % 1000) * 1_000_000)
+                ));
 
 
             String updateTime = docRef.set(payload).get().getUpdateTime().toString();
@@ -139,8 +142,15 @@ public class BinRawSensorLogService {
 
             // Query logs cũ hơn cutoff
             Set<QueryDocumentSnapshot> oldDocs = new HashSet<>();
-            oldDocs.addAll(logsRef.whereLessThan("recorded_at", cutoffMillis).get().get().getDocuments());
-
+            oldDocs.addAll(
+                    logsRef.whereLessThan(
+                            "recordedAt",
+                            com.google.cloud.Timestamp.ofTimeSecondsAndNanos(
+                                    cutoffMillis / 1000,
+                                    (int)((cutoffMillis % 1000) * 1_000_000)
+                            )
+                    ).get().get().getDocuments()
+            );
             // Xóa theo batch (tối đa 500 writes/batch theo giới hạn Firestore)
             WriteBatch batch = firestore.batch();
             int batchCount = 0;
@@ -179,7 +189,7 @@ public class BinRawSensorLogService {
                 .collection(PARENT_COLLECTION).document(binId)
                 .collection(SUB_COLLECTION);
 
-        return buildQuery(ref, "recorded_at", direction, limit).get().get().getDocuments();
+        return buildQuery(ref, "recordedAt", direction, limit).get().get().getDocuments();
     }
 
     private Query buildQuery(CollectionReference ref, String orderField, Query.Direction direction, Integer limit) {
@@ -194,16 +204,30 @@ public class BinRawSensorLogService {
         return BinRawSensorLog.builder()
                 .id(doc.getId())
 
-                .fillOrganic(getInt(doc, "fill_organic"))
-                .fillRecycle(getInt(doc, "fill_recycle"))
-                .fillNonRecycle(getInt(doc, "fill_non_recycle"))
-                .fillHazardous(getInt(doc, "fill_hazardous"))
-                .recordedAt(getLong(doc, "recorded_at"))
+                .fillOrganic(getInt(doc, "fillOrganic"))
+                .fillRecycle(getInt(doc, "fillRecycle"))
+                .fillNonRecycle(getInt(doc, "fillNonRecycle"))
+                .fillHazardous(getInt(doc, "fillHazardous"))
+                .recordedAt(getTimestamp(doc, "recordedAt"))
                 .build();
     }
 
     private Integer safeInt(Integer value) {
         return value != null ? value : 0;
+    }
+
+    private com.google.cloud.Timestamp getTimestamp(QueryDocumentSnapshot doc, String key) {
+        Object value = doc.get(key);
+        if (value instanceof com.google.cloud.Timestamp ts) {
+            return ts;
+        }
+        if (value instanceof Long millis) {
+            return com.google.cloud.Timestamp.ofTimeSecondsAndNanos(
+                    millis / 1000,
+                    (int)((millis % 1000) * 1_000_000)
+            );
+        }
+        return null;
     }
 
     private Integer getInt(QueryDocumentSnapshot doc, String... keys) {
@@ -231,7 +255,7 @@ public class BinRawSensorLogService {
             var snapshot = firestore.collection("bin_raw_sensor_logs")
                     .document(binId)
                     .collection("logs")
-                    .orderBy("recorded_at", Query.Direction.DESCENDING)
+                    .orderBy("recordedAt", Query.Direction.DESCENDING)
                     .limit(1)
                     .get()
                     .get();

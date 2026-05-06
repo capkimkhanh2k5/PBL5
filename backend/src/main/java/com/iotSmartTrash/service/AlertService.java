@@ -251,7 +251,9 @@ public class AlertService {
                 if (latest == null) continue; // tránh crash
 
                 long now = System.currentTimeMillis();
-                long last = latest.getRecordedAt();
+                long last = latest.getRecordedAt() != null
+                        ? latest.getRecordedAt().toDate().getTime()
+                        : 0L;
 
                 boolean isOffline = (now - last > 20 * 60 * 1000);
 
