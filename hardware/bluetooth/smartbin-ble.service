@@ -1,0 +1,18 @@
+[Unit]
+Description=SmartBin BLE WiFi Setup Server
+After=bluetooth.target NetworkManager.service
+Requires=bluetooth.target
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/smartbin/venv/bin/python /opt/smartbin/smartbin_ble_server.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=smartbin-ble
+
+[Install]
+WantedBy=multi-user.target

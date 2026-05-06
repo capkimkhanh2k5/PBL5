@@ -1,0 +1,20 @@
+[Unit]
+Description=SmartBin Main Application
+After=NetworkManager.service network-online.target
+Wants=NetworkManager.service network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/smartbin
+EnvironmentFile=-/etc/smartbin/main.env
+ExecStartPre=/bin/sh -c 'nmcli -t -f STATE general | grep -q connected'
+ExecStart=/opt/smartbin/venv/bin/python /opt/smartbin/testPC.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=smartbin-main
+
+[Install]
+WantedBy=multi-user.target
