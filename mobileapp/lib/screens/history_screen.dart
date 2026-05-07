@@ -47,14 +47,37 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final rawTitle = ((e['classificationResult'] ?? e['classification_result']) ?? 'Unknown').toString();
         // Map raw title to label for display
         final labelMap = {
+<<<<<<< Updated upstream
           'GENERAL': 'Rác Chung',
           'BIOLOGICAL': 'Hữu Cơ',
           'RECYCLABLE': 'Tái Chế',
           'HAZARDOUS': 'Nguy Hiểm',
+=======
+          'GENERAL_WASTE': 'Rác chung',
+          'GENERAL': 'Rác chung',
+
+          'BIOLOGICAL': 'Hữu cơ',
+          'ORGANIC': 'Hữu cơ',
+
+          'PLASTIC': 'Plastic',
+          'PAPER_CARDBOARD': 'Paper/Cardboard',
+          'PAPER': 'Paper',
+          'CARDBOARD': 'Cardboard',
+          'RECYCLABLE': 'Recyclable',
+          'METAL': 'Metal',
+          'GLASS': 'Glass',
+
+          'BATTERY': 'Battery',
+          'HAZARDOUS': 'Hazardous',
+>>>>>>> Stashed changes
         };
         return TrashHistoryItem(
           imageUrl: ((e['imageUrl'] ?? e['image_url']) ?? '').toString(),
+<<<<<<< Updated upstream
           title: labelMap[rawTitle.toUpperCase()] ?? rawTitle,
+=======
+          title: labelMap[upperTitle.replaceAll(' ', '_')] ?? rawTitle,
+>>>>>>> Stashed changes
           confidence: _toDouble(e['confidenceScore'] ?? e['confidence_score']),
         );
       }).toList();
@@ -162,6 +185,87 @@ class _HistoryCard extends StatelessWidget {
   const _HistoryCard({required this.item});
   final TrashHistoryItem item;
 
+<<<<<<< Updated upstream
+=======
+  IconData get _icon {
+    switch (item.title) {
+      case 'Rác chung':
+        return Icons.delete;
+
+      case 'Hữu cơ':
+        return Icons.eco;
+
+      case 'Plastic':
+      case 'Paper/Cardboard':
+      case 'Paper':
+      case 'Cardboard':
+      case 'Recyclable':
+      case 'Metal':
+      case 'Glass':
+        return Icons.recycling;
+
+      case 'Battery':
+      case 'Hazardous':
+        return Icons.warning_rounded;
+
+      default:
+        return Icons.help_outline;
+    }
+  }
+
+  Color get _color {
+    switch (item.title) {
+      case 'Rác chung':
+        return const Color(0xFF2E7D32);
+
+      case 'Hữu cơ':
+        return const Color(0xFF43A047);
+
+      case 'Plastic':
+      case 'Paper/Cardboard':
+      case 'Paper':
+      case 'Cardboard':
+      case 'Recyclable':
+      case 'Metal':
+      case 'Glass':
+        return const Color(0xFF1E88E5);
+
+      case 'Battery':
+      case 'Hazardous':
+        return const Color(0xFFE53935);
+
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String get _confidenceText {
+    if (item.confidence == null) return 'N/A';
+    return '${(item.confidence! * 100).toStringAsFixed(2)}%';
+  }
+
+  String get _dateText {
+    final date = item.classifiedAt;
+    if (date == null) return '--/--/----';
+
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final year = date.year.toString();
+
+    return '$day/$month/$year';
+  }
+
+  String get _timeText {
+    final date = item.classifiedAt;
+    if (date == null) return '--:--';
+
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+
+    return '$hour:$minute';
+  }
+
+>>>>>>> Stashed changes
   @override
   Widget build(BuildContext context) {
     final confidenceText = item.confidence != null
