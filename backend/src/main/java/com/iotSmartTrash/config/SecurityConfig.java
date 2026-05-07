@@ -51,6 +51,8 @@ public class SecurityConfig {
                                                 // Manual trigger should require authentication
                                                 .requestMatchers("/api/v1/trigger/**").authenticated()
 
+                                                .requestMatchers("/api/mock/**").permitAll()
+
                                                 // All other requests require Firebase Bearer Token
                                                 .anyRequest().authenticated())
 
