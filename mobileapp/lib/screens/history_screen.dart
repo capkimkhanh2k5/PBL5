@@ -13,13 +13,15 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   final _authService = AuthService();
+
   bool _loading = true;
   String? _error;
   List<TrashHistoryItem> _items = const [];
-  String _selectedType = 'General_Waste';
+  String _selectedType = 'ALL';
 
   final List<Map<String, String>> _types = [
-    {'key': 'General_Waste', 'label': 'Rác Chung'},  // ĐỔI 'GENERAL' thành 'General_Waste'
+    {'key': 'ALL', 'label': 'Tất Cả'},
+    {'key': 'General_Waste', 'label': 'Rác Chung'},
     {'key': 'ORGANIC', 'label': 'Hữu Cơ'},
     {'key': 'RECYCLABLE', 'label': 'Tái Chế'},
     {'key': 'HAZARDOUS', 'label': 'Nguy Hiểm'},
@@ -39,18 +41,47 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     try {
       final api = ApiService(authService: _authService);
+
       final Map<String, List<String>> categoryTypes = {
         'General_Waste': ['General_Waste', 'GENERAL'],
         'ORGANIC': ['ORGANIC', 'BIOLOGICAL'],
-        'RECYCLABLE': ['RECYCLABLE', 'PLASTIC', 'Plastic', 'Paper_Cardboard', 'METAL', 'GLASS'], // Thêm tất cả ở đây
+        'RECYCLABLE': [
+          'RECYCLABLE',
+          'PLASTIC',
+          'Plastic',
+          'Paper_Cardboard',
+          'METAL',
+          'GLASS',
+        ],
         'HAZARDOUS': ['HAZARDOUS', 'Battery', 'BATTERY'],
       };
 
       List<Map<String, dynamic>> logs = [];
 
-      if (_selectedType == 'RECYCLABLE') {
-        // Lấy tất cả các loại thuộc nhóm Tái Chế
+      if (_selectedType == 'ALL') {
+        for (var entry in categoryTypes.entries) {
+          for (var type in entry.value) {
+            final typeLogs = await api.getClassificationLogs(
+              binId: widget.binId,
+              type: type,
+              limit: 10,
+            );
+
+            logs.addAll(typeLogs);
+          }
+        }
+
+        final uniqueLogs = <String, Map<String, dynamic>>{};
+
+        for (var log in logs) {
+          uniqueLogs[(log['log_id'] ?? log['logId']).toString()] = log;
+        }
+
+        logs = uniqueLogs.values.toList();
+      }
+      else if (_selectedType == 'RECYCLABLE') {
         final types = categoryTypes['RECYCLABLE']!;
+
         for (var type in types) {
           final typeLogs = await api.getClassificationLogs(
             binId: widget.binId,
@@ -59,60 +90,70 @@ class _HistoryScreenState extends State<HistoryScreen> {
           );
           logs.addAll(typeLogs);
         }
-        // Xóa trùng và sắp xếp theo thời gian
+
         final uniqueLogs = <String, Map<String, dynamic>>{};
         for (var log in logs) {
-          uniqueLogs[log['log_id'] ?? log['logId']] = log;
+          uniqueLogs[(log['log_id'] ?? log['logId']).toString()] = log;
         }
+
         logs = uniqueLogs.values.toList();
-        logs.sort((a, b) {
-          final aTime = (a['classified_at'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
-          final bTime = (b['classified_at'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
-          return bTime.compareTo(aTime);
-        });
       } else {
-        logs = await api.getClassificationLogs(
-          binId: widget.binId,
-          type: _selectedType,
-          limit: 10,
-        );
-      }
-      print('=== DEBUG HISTORY ===');
-      print('Số lượng logs: ${logs.length}');
-      print('Bin ID đang query: ${widget.binId}');
-      print('Type đang lọc: $_selectedType');
+        final types = categoryTypes[_selectedType] ?? [_selectedType];
 
-      print('=== ALL UNIQUE CLASSIFICATION TYPES ===');
-      final uniqueTypes = logs.map((e) => e['classification_result']).toSet();
-      print(uniqueTypes);
-      print('========================================');
-      if (logs.isNotEmpty) {
-        print('Log đầu tiên: ${logs.first}');
-        print('image_url: ${logs.first['image_url'] ?? logs.first['imageUrl']}');
-        print('classification_result: ${logs.first['classification_result'] ?? logs.first['classificationResult']}');
+        for (var type in types) {
+          final typeLogs = await api.getClassificationLogs(
+            binId: widget.binId,
+            type: type,
+            limit: 10,
+          );
+
+          logs.addAll(typeLogs);
+        }
       }
-      print('=====================');
+
+      logs.sort((a, b) {
+        final aTime =
+            _toDateTime(a['classifiedAt'])?.millisecondsSinceEpoch ?? 0;
+
+        final bTime =
+            _toDateTime(b['classifiedAt'])?.millisecondsSinceEpoch ?? 0;
+
+        return bTime.compareTo(aTime);
+      });
+
+      logs = logs.take(10).toList();
+
       final items = logs.map((e) {
-        final rawTitle = ((e['classificationResult'] ?? e['classification_result']) ?? 'Unknown').toString();
-        final upperTitle = rawTitle.toUpperCase();
-        // Map raw title to label for display
-        final labelMap = {
+        final rawTitle =
+        ((e['classificationResult'] ?? e['classification_result']) ??
+            'Unknown')
+            .toString();
 
+        final upperTitle = rawTitle.toUpperCase();
+
+        final labelMap = {
           'GENERAL_WASTE': 'Rác Chung',
+          'GENERAL': 'Rác Chung',
           'BIOLOGICAL': 'Hữu Cơ',
           'ORGANIC': 'Hữu Cơ',
-          'PLASTIC': 'Tái Chế',      // ← chỉ cần viết hoa
+          'PLASTIC': 'Tái Chế',
           'PAPER_CARDBOARD': 'Tái Chế',
           'RECYCLABLE': 'Tái Chế',
+          'METAL': 'Tái Chế',
+          'GLASS': 'Tái Chế',
           'BATTERY': 'Nguy Hiểm',
           'HAZARDOUS': 'Nguy Hiểm',
         };
+        print('FULL ITEM: $e');
+
         return TrashHistoryItem(
           imageUrl: ((e['imageUrl'] ?? e['image_url']) ?? '').toString(),
           title: labelMap[upperTitle] ?? rawTitle,
           confidence: _toDouble(e['confidenceScore'] ?? e['confidence_score']),
+          classifiedAt: _toDateTime(e['classified_at'] ?? e['classifiedAt']),
         );
       }).toList();
+
       if (!mounted) return;
       setState(() => _items = items);
     } catch (e) {
@@ -129,42 +170,83 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return double.tryParse(value?.toString() ?? '');
   }
 
+  static DateTime? _toDateTime(dynamic value) {
+    if (value == null) return null;
+
+    // Firestore Timestamp
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+
+    // Map từ backend
+    if (value is Map<Object?, Object?>) {
+      final seconds = value['seconds'] ?? value['_seconds'];
+
+      if (seconds != null) {
+        return DateTime.fromMillisecondsSinceEpoch(
+          (seconds as num).toInt() * 1000,
+        );
+      }
+    }
+
+    // String
+    if (value is String) {
+      return DateTime.tryParse(value);
+    }
+
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFEAF6EE),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: const Color(0xFF1B5E20),
         elevation: 0,
         foregroundColor: Colors.white,
+        centerTitle: true,
         title: Text(
           'Trash history - ${widget.binId}',
           style: const TextStyle(
             color: Colors.white,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
           ),
         ),
       ),
       body: Column(
         children: [
           Container(
-            height: 60,
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            color: Colors.white,
+            height: 64,
+            padding: const EdgeInsets.symmetric(vertical: 10),
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               scrollDirection: Axis.horizontal,
               itemCount: _types.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
               itemBuilder: (context, index) {
                 final type = _types[index];
                 final isSelected = _selectedType == type['key'];
+
                 return ChoiceChip(
                   label: Text(type['label']!),
                   selected: isSelected,
+                  showCheckmark: false,
+                  backgroundColor: Colors.white,
                   selectedColor: const Color(0xFF2E7D32),
+                  side: BorderSide(
+                    color: isSelected
+                        ? const Color(0xFF2E7D32)
+                        : Colors.grey.shade300,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                   labelStyle: TextStyle(
                     color: isSelected ? Colors.white : Colors.black87,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                   onSelected: (selected) {
                     if (selected && _selectedType != type['key']) {
@@ -176,28 +258,61 @@ class _HistoryScreenState extends State<HistoryScreen> {
               },
             ),
           ),
+
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(
+              child: CircularProgressIndicator(
+                color: Color(0xFF2E7D32),
+              ),
+            )
                 : _error != null
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(_error!),
-                            const SizedBox(height: 10),
-                            ElevatedButton(onPressed: _load, child: const Text('Retry')),
-                          ],
-                        ),
-                      )
-                    : _items.isEmpty
-                        ? const Center(child: Text('No classification images yet.'))
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                            itemCount: _items.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 18),
-                            itemBuilder: (context, i) => _HistoryCard(item: _items[i]),
-                          ),
+                ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    color: Colors.red,
+                    size: 42,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _error!,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: _load,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2E7D32),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+                : _items.isEmpty
+                ? const Center(
+              child: Text(
+                'No classification images yet.',
+                style: TextStyle(
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+                : ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              itemCount: _items.length,
+              separatorBuilder: (_, __) =>
+              const SizedBox(height: 10),
+              itemBuilder: (context, i) =>
+                  _HistoryCard(item: _items[i]),
+            ),
           ),
         ],
       ),
@@ -209,101 +324,197 @@ class TrashHistoryItem {
   final String imageUrl;
   final String title;
   final double? confidence;
+  final DateTime? classifiedAt;
 
-  const TrashHistoryItem({required this.imageUrl, required this.title, this.confidence});
+  const TrashHistoryItem({
+    required this.imageUrl,
+    required this.title,
+    this.confidence,
+    this.classifiedAt,
+  });
 }
 
 class _HistoryCard extends StatelessWidget {
   const _HistoryCard({required this.item});
   final TrashHistoryItem item;
 
+  IconData get _icon {
+    switch (item.title) {
+      case 'Rác Chung':
+        return Icons.delete;
+      case 'Hữu Cơ':
+        return Icons.eco;
+      case 'Tái Chế':
+        return Icons.recycling;
+      case 'Nguy Hiểm':
+        return Icons.warning_rounded;
+      default:
+        return Icons.help_outline;
+    }
+  }
+
+  Color get _color {
+    switch (item.title) {
+      case 'Rác Chung':
+        return const Color(0xFF2E7D32);
+      case 'Hữu Cơ':
+        return const Color(0xFF43A047);
+      case 'Tái Chế':
+        return const Color(0xFF1E88E5);
+      case 'Nguy Hiểm':
+        return const Color(0xFFE53935);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String get _confidenceText {
+    if (item.confidence == null) return 'N/A';
+    return '${(item.confidence! * 100).toStringAsFixed(2)}%';
+  }
+
+  String get _dateText {
+    final date = item.classifiedAt;
+    if (date == null) return '--/--/----';
+
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final year = date.year.toString();
+
+    return '$day/$month/$year';
+  }
+
+  String get _timeText {
+    final date = item.classifiedAt;
+    if (date == null) return '--:--';
+
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+
+    return '$hour:$minute';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final confidenceText = item.confidence != null
-        ? '${(item.confidence! * 100).toStringAsFixed(1)}%'
-        : 'N/A';
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        height: 220,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.15),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Image(
-              image: item.imageUrl.isNotEmpty
-                  ? NetworkImage(item.imageUrl)
-                  : const AssetImage('assets/images/leaves.jpg') as ImageProvider,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              errorBuilder: (_, __, ___) => Image.asset(
-                'assets/images/leaves.jpg',
-                fit: BoxFit.cover,
-                width: double.infinity,
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.7),
-                      Colors.black.withOpacity(0.05),
-                    ],
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      elevation: 1.5,
+      shadowColor: Colors.black.withOpacity(0.08),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {},
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image(
+                  image: item.imageUrl.isNotEmpty
+                      ? NetworkImage(item.imageUrl)
+                      : const AssetImage('assets/images/leaves.jpg')
+                  as ImageProvider,
+                  width: 62,
+                  height: 62,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Image.asset(
+                    'assets/images/leaves.jpg',
+                    width: 62,
+                    height: 62,
+                    fit: BoxFit.cover,
                   ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              ),
+
+              const SizedBox(width: 12),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        'AI: ${item.title}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
+                    Row(
+                      children: [
+                        Icon(
+                          _icon,
+                          color: _color,
+                          size: 19,
                         ),
-                      ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: _color,
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        'Confidence: $confidenceText',
+
+                    const SizedBox(height: 5),
+
+                    RichText(
+                      text: TextSpan(
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF5F6B7A),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
                         ),
+                        children: [
+                          const TextSpan(text: 'Confidence: '),
+                          TextSpan(
+                            text: _confidenceText,
+                            style: TextStyle(
+                              color: _color,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+
+              const SizedBox(width: 8),
+
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _dateText,
+                    style: const TextStyle(
+                      color: Color(0xFF5F6B7A),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    _timeText,
+                    style: const TextStyle(
+                      color: Color(0xFF5F6B7A),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(width: 6),
+
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+                size: 24,
+              ),
+            ],
+          ),
         ),
       ),
     );
