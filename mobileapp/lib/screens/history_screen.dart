@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key, required this.binId});
@@ -12,14 +13,16 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   final _authService = AuthService();
+
   bool _loading = true;
   String? _error;
   List<TrashHistoryItem> _items = const [];
-  String _selectedType = 'GENERAL';
+  String _selectedType = 'ALL';
 
   final List<Map<String, String>> _types = [
-    {'key': 'GENERAL', 'label': 'Rác Chung'},
-    {'key': 'BIOLOGICAL', 'label': 'Hữu Cơ'},
+    {'key': 'ALL', 'label': 'Tất Cả'},
+    {'key': 'General_Waste', 'label': 'Rác Chung'},
+    {'key': 'ORGANIC', 'label': 'Hữu Cơ'},
     {'key': 'RECYCLABLE', 'label': 'Tái Chế'},
     {'key': 'HAZARDOUS', 'label': 'Nguy Hiểm'},
   ];
@@ -38,21 +41,83 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     try {
       final api = ApiService(authService: _authService);
-      final logs = await api.getClassificationLogs(
-        binId: widget.binId,
-        type: _selectedType,
-        limit: 10,
-      );
+
+      final Map<String, List<String>> categoryTypes = {
+        'General_Waste': ['General_Waste', 'GENERAL'],
+        'ORGANIC': ['ORGANIC', 'BIOLOGICAL'],
+        'RECYCLABLE': [
+          'RECYCLABLE',
+          'PLASTIC',
+          'Plastic',
+          'Paper_Cardboard',
+          'PAPER_CARDBOARD',
+          'METAL',
+          'GLASS',
+        ],
+        'HAZARDOUS': ['HAZARDOUS', 'Battery', 'BATTERY'],
+      };
+
+      List<Map<String, dynamic>> logs = [];
+
+      if (_selectedType == 'ALL') {
+        for (var entry in categoryTypes.entries) {
+          for (var type in entry.value) {
+            final typeLogs = await api.getClassificationLogs(
+              binId: widget.binId,
+              type: type,
+              limit: 10,
+            );
+
+            logs.addAll(typeLogs);
+          }
+        }
+      } else {
+        final types = categoryTypes[_selectedType] ?? [_selectedType];
+
+        for (var type in types) {
+          final typeLogs = await api.getClassificationLogs(
+            binId: widget.binId,
+            type: type,
+            limit: 10,
+          );
+
+          logs.addAll(typeLogs);
+        }
+      }
+
+      final uniqueLogs = <String, Map<String, dynamic>>{};
+
+      for (var log in logs) {
+        uniqueLogs[(log['log_id'] ?? log['logId']).toString()] = log;
+      }
+
+      logs = uniqueLogs.values.toList();
+
+      logs.sort((a, b) {
+        final aTime =
+            _toDateTime(a['classified_at'] ?? a['classifiedAt'])
+                ?.millisecondsSinceEpoch ??
+                0;
+
+        final bTime =
+            _toDateTime(b['classified_at'] ?? b['classifiedAt'])
+                ?.millisecondsSinceEpoch ??
+                0;
+
+        return bTime.compareTo(aTime);
+      });
+
+      logs = logs.take(10).toList();
+
       final items = logs.map((e) {
-        final rawTitle = ((e['classificationResult'] ?? e['classification_result']) ?? 'Unknown').toString();
-        // Map raw title to label for display
+        final rawTitle =
+        ((e['classification_result'] ?? e['classificationResult']) ??
+            'Unknown')
+            .toString();
+
+        final upperTitle = rawTitle.trim().toUpperCase().replaceAll(' ', '_');
+
         final labelMap = {
-<<<<<<< Updated upstream
-          'GENERAL': 'Rác Chung',
-          'BIOLOGICAL': 'Hữu Cơ',
-          'RECYCLABLE': 'Tái Chế',
-          'HAZARDOUS': 'Nguy Hiểm',
-=======
           'GENERAL_WASTE': 'Rác chung',
           'GENERAL': 'Rác chung',
 
@@ -69,18 +134,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
           'BATTERY': 'Battery',
           'HAZARDOUS': 'Hazardous',
->>>>>>> Stashed changes
         };
+
+        print('FULL ITEM: $e');
+
         return TrashHistoryItem(
-          imageUrl: ((e['imageUrl'] ?? e['image_url']) ?? '').toString(),
-<<<<<<< Updated upstream
-          title: labelMap[rawTitle.toUpperCase()] ?? rawTitle,
-=======
-          title: labelMap[upperTitle.replaceAll(' ', '_')] ?? rawTitle,
->>>>>>> Stashed changes
-          confidence: _toDouble(e['confidenceScore'] ?? e['confidence_score']),
+          imageUrl: ((e['image_url'] ?? e['imageUrl']) ?? '').toString(),
+          title: labelMap[upperTitle] ?? rawTitle,
+          confidence: _toDouble(e['confidence_score'] ?? e['confidenceScore']),
+          classifiedAt: _toDateTime(e['classified_at'] ?? e['classifiedAt']),
         );
       }).toList();
+
       if (!mounted) return;
       setState(() => _items = items);
     } catch (e) {
@@ -97,42 +162,80 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return double.tryParse(value?.toString() ?? '');
   }
 
+  static DateTime? _toDateTime(dynamic value) {
+    if (value == null) return null;
+
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+
+    if (value is Map<Object?, Object?>) {
+      final seconds = value['seconds'] ?? value['_seconds'];
+
+      if (seconds != null) {
+        return DateTime.fromMillisecondsSinceEpoch(
+          (seconds as num).toInt() * 1000,
+        );
+      }
+    }
+
+    if (value is String) {
+      return DateTime.tryParse(value);
+    }
+
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFEAF6EE),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: const Color(0xFF1B5E20),
         elevation: 0,
         foregroundColor: Colors.white,
+        centerTitle: true,
         title: Text(
           'Trash history - ${widget.binId}',
           style: const TextStyle(
             color: Colors.white,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
           ),
         ),
       ),
       body: Column(
         children: [
           Container(
-            height: 60,
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            color: Colors.white,
+            height: 64,
+            padding: const EdgeInsets.symmetric(vertical: 10),
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               scrollDirection: Axis.horizontal,
               itemCount: _types.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
               itemBuilder: (context, index) {
                 final type = _types[index];
                 final isSelected = _selectedType == type['key'];
+
                 return ChoiceChip(
                   label: Text(type['label']!),
                   selected: isSelected,
+                  showCheckmark: false,
+                  backgroundColor: Colors.white,
                   selectedColor: const Color(0xFF2E7D32),
+                  side: BorderSide(
+                    color: isSelected
+                        ? const Color(0xFF2E7D32)
+                        : Colors.grey.shade300,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                   labelStyle: TextStyle(
                     color: isSelected ? Colors.white : Colors.black87,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                   onSelected: (selected) {
                     if (selected && _selectedType != type['key']) {
@@ -146,26 +249,58 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(
+              child: CircularProgressIndicator(
+                color: Color(0xFF2E7D32),
+              ),
+            )
                 : _error != null
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(_error!),
-                            const SizedBox(height: 10),
-                            ElevatedButton(onPressed: _load, child: const Text('Retry')),
-                          ],
-                        ),
-                      )
-                    : _items.isEmpty
-                        ? const Center(child: Text('No classification images yet.'))
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                            itemCount: _items.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 18),
-                            itemBuilder: (context, i) => _HistoryCard(item: _items[i]),
-                          ),
+                ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    color: Colors.red,
+                    size: 42,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _error!,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: _load,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2E7D32),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+                : _items.isEmpty
+                ? const Center(
+              child: Text(
+                'No classification images yet.',
+                style: TextStyle(
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+                : ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              itemCount: _items.length,
+              separatorBuilder: (_, __) =>
+              const SizedBox(height: 10),
+              itemBuilder: (context, i) =>
+                  _HistoryCard(item: _items[i]),
+            ),
           ),
         ],
       ),
@@ -177,16 +312,20 @@ class TrashHistoryItem {
   final String imageUrl;
   final String title;
   final double? confidence;
+  final DateTime? classifiedAt;
 
-  const TrashHistoryItem({required this.imageUrl, required this.title, this.confidence});
+  const TrashHistoryItem({
+    required this.imageUrl,
+    required this.title,
+    this.confidence,
+    this.classifiedAt,
+  });
 }
 
 class _HistoryCard extends StatelessWidget {
   const _HistoryCard({required this.item});
   final TrashHistoryItem item;
 
-<<<<<<< Updated upstream
-=======
   IconData get _icon {
     switch (item.title) {
       case 'Rác chung':
@@ -265,94 +404,119 @@ class _HistoryCard extends StatelessWidget {
     return '$hour:$minute';
   }
 
->>>>>>> Stashed changes
   @override
   Widget build(BuildContext context) {
-    final confidenceText = item.confidence != null
-        ? '${(item.confidence! * 100).toStringAsFixed(1)}%'
-        : 'N/A';
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        height: 220,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.15),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Image(
-              image: item.imageUrl.isNotEmpty
-                  ? NetworkImage(item.imageUrl)
-                  : const AssetImage('assets/images/leaves.jpg') as ImageProvider,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              errorBuilder: (_, __, ___) => Image.asset(
-                'assets/images/leaves.jpg',
-                fit: BoxFit.cover,
-                width: double.infinity,
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.7),
-                      Colors.black.withOpacity(0.05),
-                    ],
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      elevation: 1.5,
+      shadowColor: Colors.black.withOpacity(0.08),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {},
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image(
+                  image: item.imageUrl.isNotEmpty
+                      ? NetworkImage(item.imageUrl)
+                      : const AssetImage('assets/images/leaves.jpg')
+                  as ImageProvider,
+                  width: 62,
+                  height: 62,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Image.asset(
+                    'assets/images/leaves.jpg',
+                    width: 62,
+                    height: 62,
+                    fit: BoxFit.cover,
                   ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        'AI: ${item.title}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
+                    Row(
+                      children: [
+                        Icon(
+                          _icon,
+                          color: _color,
+                          size: 19,
                         ),
-                      ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: _color,
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        'Confidence: $confidenceText',
+                    const SizedBox(height: 5),
+                    RichText(
+                      text: TextSpan(
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF5F6B7A),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
                         ),
+                        children: [
+                          const TextSpan(text: 'Confidence: '),
+                          TextSpan(
+                            text: _confidenceText,
+                            style: TextStyle(
+                              color: _color,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _dateText,
+                    style: const TextStyle(
+                      color: Color(0xFF5F6B7A),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    _timeText,
+                    style: const TextStyle(
+                      color: Color(0xFF5F6B7A),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 6),
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+                size: 24,
+              ),
+            ],
+          ),
         ),
       ),
     );
