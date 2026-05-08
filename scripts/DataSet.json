@@ -209,7 +209,7 @@
 			},
 			"body": {
 				"temperature": 31.1,
-				"batteryLevel": 72,
+
 				"fillOrganic": 44,
 				"fillRecycle": 57,
 				"fillNonRecycle": 65,

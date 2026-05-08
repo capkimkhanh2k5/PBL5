@@ -19,6 +19,7 @@ _CURR_DIR = os.path.dirname(os.path.abspath(__file__))
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
 CLOUDINARY_API_KEY    = os.getenv("CLOUDINARY_API_KEY")
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
+BIN_ID = os.getenv("BIN_ID", "bin_001")  # ID thùng rác mặc định nếu không có trong .env
 
 SAVE_ROOT_DIR = "PBL5"
 
@@ -155,7 +156,7 @@ def upload_and_log(
             try:
                 import cloudinary.uploader
 
-                folder = f"{SAVE_ROOT_DIR}/{bin_id}/{BIN_TO_CLOUDINARY_FOLDER.get(bin_type, 'General')}"
+                folder = f"{SAVE_ROOT_DIR}/{BIN_ID}/{BIN_TO_CLOUDINARY_FOLDER.get(bin_type, 'General')}"
                 pub_id = f"{bin_id}_{int(time.time() * 1000)}"
 
                 result = cloudinary.uploader.upload(

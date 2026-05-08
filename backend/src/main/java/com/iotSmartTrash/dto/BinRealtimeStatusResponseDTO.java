@@ -16,8 +16,8 @@ import lombok.NoArgsConstructor;
 @Builder
 public class BinRealtimeStatusResponseDTO {
     private String id;
-    private String status;
-    private Integer batteryLevel;
+
+
     private Integer fillOrganic;
     private Integer fillRecycle;
     private Integer fillNonRecycle;
@@ -31,8 +31,6 @@ public class BinRealtimeStatusResponseDTO {
         if (log == null) {
             return BinRealtimeStatusResponseDTO.builder()
                     .id(binId)
-                    .status("UNKNOWN")
-                    .batteryLevel(0)
                     .fillOrganic(0)
                     .fillRecycle(0)
                     .fillNonRecycle(0)
@@ -41,14 +39,12 @@ public class BinRealtimeStatusResponseDTO {
                     .build();
         }
 
-        long lastUpdated = log.getRecordedAt() != null ? log.getRecordedAt() : 0L;
-        long ageMs = System.currentTimeMillis() - lastUpdated;
-        String status = (lastUpdated > 0 && ageMs <= offlineThresholdMs) ? "ONLINE" : "OFFLINE";
+        long lastUpdated = log.getRecordedAt() != null
+                ? log.getRecordedAt().toDate().getTime()
+                : 0L;
 
         return BinRealtimeStatusResponseDTO.builder()
                 .id(binId)
-                .status(status)
-                .batteryLevel(log.getBatteryLevel())
                 .fillOrganic(log.getFillOrganic())
                 .fillRecycle(log.getFillRecycle())
                 .fillNonRecycle(log.getFillNonRecycle())

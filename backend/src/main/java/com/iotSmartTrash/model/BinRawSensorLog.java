@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import com.google.cloud.Timestamp;
 
 /**
  * Dữ liệu sensor thô từ Raspi
@@ -21,18 +22,18 @@ public class BinRawSensorLog {
     @PropertyName("battery_level")
     private Integer batteryLevel;
 
-    @PropertyName("fill_organic")
+    @PropertyName("fillOrganic")
     private Integer fillOrganic;
 
-    @PropertyName("fill_recycle")
+    @PropertyName("fillRecycle")
     private Integer fillRecycle;
 
-    @PropertyName("fill_non_recycle")
+    @PropertyName("fillNonRecycle")
     private Integer fillNonRecycle;
 
-    @PropertyName("fill_hazardous")
+    @PropertyName("fillHazardous")
     private Integer fillHazardous;
 
-    @PropertyName("recorded_at")
-    private Long recordedAt; // epoch millis
+    @PropertyName("recordedAt")
+    private Timestamp recordedAt; // epoch millis
 }

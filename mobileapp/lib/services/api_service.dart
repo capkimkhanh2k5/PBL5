@@ -197,7 +197,7 @@ class ApiService {
     return _dio.get(path, queryParameters: queryParams);
   }
 
-  // Generic POST 
+  // Generic POST
   Future<Response> post(String path, {dynamic data}) {
     return _dio.post(path, data: data);
   }
