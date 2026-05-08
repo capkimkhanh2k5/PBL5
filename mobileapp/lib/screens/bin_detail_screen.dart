@@ -4,6 +4,7 @@ import 'history_screen.dart';
 import 'map_screen.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class BinDetailScreen extends StatefulWidget {
   const BinDetailScreen({super.key, required this.binId});
@@ -18,6 +19,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
   _BinDetail? data;
   bool _isLoading = true;
   String? _error;
+  DateTime _selectedChartDate = DateTime.now();
 
   static const bg = Color(0xFFEAF6EE);
   static const primary = Color(0xFF2F6B3D);
@@ -38,13 +40,15 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
       final api = ApiService(authService: _authService);
       final results = await Future.wait([
         api.getAllBinStatuses(),
-        api.getRecentSensorLogs(widget.binId, limit: 24),
+        api.getRecentSensorLogs(widget.binId, limit: 288),
       ]);
+
       final statuses = results[0];
       final status = statuses.cast<Map<String, dynamic>?>().firstWhere(
             (e) => (e?['id'] ?? '').toString() == widget.binId,
-            orElse: () => null,
-          );
+        orElse: () => null,
+      );
+
       final logs = results[1];
 
       print('STATUS = $status');
@@ -73,23 +77,34 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
         final oldest = logs.last;
         final newestAvg = _avgFromLog(newest);
         final oldestAvg = _avgFromLog(oldest);
-        final newestAt = _toInt(newest['recordedAt']);
-        final oldestAt = _toInt(oldest['recordedAt']);
-        if (newestAt != null && oldestAt != null && newestAt > oldestAt) {
+        final newestAt = FillLineChart._toMillis(newest['recordedAt']);
+        final oldestAt = FillLineChart._toMillis(oldest['recordedAt']);
+
+        if (newestAt > 0 && oldestAt > 0 && newestAt > oldestAt) {
           final hours = (newestAt - oldestAt) / 3600000.0;
           final delta = newestAvg - oldestAvg;
+
           if (hours > 0 && delta > 0) {
             final ratePerHour = delta / hours;
             etaDays = ((100 - avgFill) / ratePerHour) / 24.0;
           }
         }
       }
+
       if (etaDays <= 0 || etaDays.isNaN || etaDays.isInfinite) {
         etaDays = ((100 - avgFill) / 15.0).clamp(0.2, 14.0).toDouble();
       }
 
       if (!mounted) return;
+
+      final newestLogDate = logs.isNotEmpty
+          ? DateTime.fromMillisecondsSinceEpoch(
+        FillLineChart._toMillis(logs.first['recordedAt']),
+      )
+          : DateTime.now();
+
       setState(() {
+        _selectedChartDate = newestLogDate;
         data = _BinDetail(
           fillPercent: avgFill,
           suggestDumpAt: 90,
@@ -98,6 +113,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
           fillRecycle: fillRecycle,
           fillNonRecycle: fillNonRecycle,
           fillHazardous: fillHazardous,
+          logs: logs.cast<Map<String, dynamic>>(),
         );
       });
     } catch (e) {
@@ -121,6 +137,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
       _toInt(log['fillNonRecycle']) ?? 0,
       _toInt(log['fillHazardous']) ?? 0,
     ];
+
     return values.reduce((a, b) => a + b) ~/ values.length;
   }
 
@@ -149,6 +166,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
     }
 
     final d = data!;
+    final chartLogs = _filterLogsByDate(d.logs, _selectedChartDate);
 
     return Scaffold(
       backgroundColor: bg,
@@ -177,8 +195,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                 children: [
                   const SizedBox(height: 10),
                   const Text(
-                    
-                    "Bin Fill Level",
+                    'Bin Fill Level',
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w800,
@@ -186,26 +203,18 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 6),
-
-                  
-
                   _gauge(d.fillPercent),
-
-
-                  
-
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      "Waste Composition",
+                      'Waste Composition',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
-                  
-
+                  const SizedBox(height: 12),
                   GridView.count(
                     crossAxisCount: 2,
                     crossAxisSpacing: 12,
@@ -215,28 +224,27 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                     physics: const NeverScrollableScrollPhysics(),
                     children: [
                       WasteMiniCard(
-                        title: "Organic Waste",
+                        title: 'Organic Waste',
                         percent: d.fillOrganic / 100,
                         color: const Color(0xFF2D8CFF),
                       ),
                       WasteMiniCard(
-                        title: "Plastic & Paper",
+                        title: 'Plastic & Paper',
                         percent: d.fillRecycle / 100,
                         color: const Color(0xFFF6C000),
                       ),
                       WasteMiniCard(
-                        title: "Metal",
+                        title: 'Metal',
                         percent: d.fillNonRecycle / 100,
                         color: const Color(0xFFFF8A00),
                       ),
                       WasteMiniCard(
-                        title: "Other Waste",
+                        title: 'Other Waste',
                         percent: d.fillHazardous / 100,
                         color: const Color(0xFFFF3B30),
                       ),
                     ],
                   ),
-                  
                   const SizedBox(height: 14),
                   _primaryButton(
                     text: 'View History',
@@ -292,12 +300,142 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 14),
+            _softCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Today Fill Analytics',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Fill level trend during the day',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.black54,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _datePickerButton(),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    height: 220,
+                    child: FillLineChart(logs: chartLogs),
+                  ),
+                  const SizedBox(height: 14),
+                  const Wrap(
+                    spacing: 14,
+                    runSpacing: 8,
+                    children: [
+                      _LegendDot(
+                        label: 'Organic',
+                        color: Color(0xFF2D8CFF),
+                      ),
+                      _LegendDot(
+                        label: 'Recycle',
+                        color: Color(0xFFF6C000),
+                      ),
+                      _LegendDot(
+                        label: 'NonRecycle',
+                        color: Color(0xFFFF8A00),
+                      ),
+                      _LegendDot(
+                        label: 'Hazardous',
+                        color: Color(0xFFFF3B30),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
+  List<Map<String, dynamic>> _filterLogsByDate(
+      List<Map<String, dynamic>> logs,
+      DateTime selectedDate,
+      ) {
+    return logs.where((log) {
+      final millis = FillLineChart._toMillis(log['recordedAt']);
+      if (millis <= 0) return false;
+
+      final dt = DateTime.fromMillisecondsSinceEpoch(millis);
+      return dt.year == selectedDate.year &&
+          dt.month == selectedDate.month &&
+          dt.day == selectedDate.day;
+    }).toList();
+  }
+
+  String _formatSelectedDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final year = date.year.toString();
+    return '$day/$month/$year';
+  }
+
+  Future<void> _pickChartDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedChartDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      _selectedChartDate = picked;
+    });
+  }
+
+  Widget _datePickerButton() {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: _pickChartDate,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF4F7F5),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.black.withOpacity(0.06)),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.calendar_today_rounded,
+              size: 18,
+              color: primary,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Date: ${_formatSelectedDate(_selectedChartDate)}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black87,
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Colors.black54,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _softCard({required Widget child}) {
     return Container(
@@ -340,11 +478,9 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
     );
   }
 
-
-
   Widget _gauge(int percent) {
     return SizedBox(
-      height: 220, // chỉnh 200-240 tùy bạn
+      height: 220,
       child: Center(
         child: Stack(
           alignment: Alignment.center,
@@ -377,6 +513,7 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
     );
   }
 }
+
 class WasteMiniCard extends StatelessWidget {
   const WasteMiniCard({
     super.key,
@@ -408,7 +545,6 @@ class WasteMiniCard extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          // “dấu màu nhỏ ở góc” giống ảnh
           Positioned(
             top: 2,
             right: 2,
@@ -418,7 +554,6 @@ class WasteMiniCard extends StatelessWidget {
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             ),
           ),
-
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -433,7 +568,6 @@ class WasteMiniCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
-
               ClipRRect(
                 borderRadius: BorderRadius.circular(999),
                 child: LinearProgressIndicator(
@@ -444,11 +578,10 @@ class WasteMiniCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
-
               Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  "$pct%",
+                  '$pct%',
                   style: const TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w800,
@@ -464,9 +597,247 @@ class WasteMiniCard extends StatelessWidget {
   }
 }
 
-/* =======================
-   Fake repo + data model
-   ======================= */
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
+}
+
+class FillLineChart extends StatelessWidget {
+  const FillLineChart({super.key, required this.logs});
+
+  final List<Map<String, dynamic>> logs;
+
+  static int _toMillis(dynamic value) {
+    if (value == null) return 0;
+
+    if (value is Timestamp) {
+      return value.millisecondsSinceEpoch;
+    }
+
+    if (value is DateTime) {
+      return value.millisecondsSinceEpoch;
+    }
+
+    if (value is int) {
+      // Trường hợp API trả numeric timestamp.
+      // Nếu là seconds thì đổi sang milliseconds.
+      if (value < 1000000000000) return value * 1000;
+      return value;
+    }
+
+    if (value is num) {
+      final intValue = value.toInt();
+      if (intValue < 1000000000000) return intValue * 1000;
+      return intValue;
+    }
+
+    // Trường hợp Timestamp bị convert thành map/json.
+    if (value is Map) {
+      final seconds = value['seconds'] ?? value['_seconds'];
+      final nanos = value['nanoseconds'] ?? value['_nanoseconds'] ?? 0;
+
+      final secInt = int.tryParse(seconds?.toString() ?? '');
+      final nanoInt = int.tryParse(nanos?.toString() ?? '') ?? 0;
+
+      if (secInt != null) {
+        return secInt * 1000 + (nanoInt ~/ 1000000);
+      }
+    }
+
+    final parsedInt = int.tryParse(value.toString());
+    if (parsedInt != null) {
+      if (parsedInt < 1000000000000) return parsedInt * 1000;
+      return parsedInt;
+    }
+
+    final parsedDate = DateTime.tryParse(value.toString());
+    if (parsedDate != null) {
+      return parsedDate.millisecondsSinceEpoch;
+    }
+
+    return 0;
+  }
+
+  static List<Map<String, dynamic>> _sampleLogs(
+      List<Map<String, dynamic>> logs,
+      int count,
+      ) {
+    if (logs.length <= count) return logs;
+
+    return List.generate(count, (i) {
+      final index = (i * (logs.length - 1) / (count - 1)).round();
+      return logs[index];
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sortedLogs = [...logs];
+
+    sortedLogs.sort((a, b) {
+      final at = _toMillis(a['recordedAt']);
+      final bt = _toMillis(b['recordedAt']);
+      return at.compareTo(bt);
+    });
+
+    final validLogs = sortedLogs.where((log) {
+      return _toMillis(log['recordedAt']) > 0;
+    }).toList();
+
+    final points = validLogs.length > 48 ? _sampleLogs(validLogs, 48) : validLogs;
+
+    if (points.length < 2) {
+      return const Center(
+        child: Text(
+          'Not enough data to display chart',
+          style: TextStyle(color: Colors.black45),
+        ),
+      );
+    }
+
+    return CustomPaint(
+      painter: FillLineChartPainter(points),
+      child: Container(),
+    );
+  }
+}
+
+class FillLineChartPainter extends CustomPainter {
+  FillLineChartPainter(this.logs);
+
+  final List<Map<String, dynamic>> logs;
+
+  static int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static String _formatTimeLabel(int millis) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(millis);
+    final hour = dt.hour.toString().padLeft(2, '0');
+    final minute = dt.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const left = 38.0;
+    const right = 10.0;
+    const top = 12.0;
+    const bottom = 32.0;
+
+    final chartW = size.width - left - right;
+    final chartH = size.height - top - bottom;
+
+    final firstTime = FillLineChart._toMillis(logs.first['recordedAt']);
+    final lastTime = FillLineChart._toMillis(logs.last['recordedAt']);
+    final totalDuration = (lastTime - firstTime).toDouble();
+
+    final gridPaint = Paint()
+      ..color = Colors.grey.withOpacity(0.18)
+      ..strokeWidth = 1;
+
+    final textPainter = TextPainter(textDirection: TextDirection.ltr);
+
+    // Trục Y: 100, 75, 50, 25, 0
+    for (int i = 0; i <= 4; i++) {
+      final y = top + chartH * i / 4;
+      canvas.drawLine(Offset(left, y), Offset(size.width - right, y), gridPaint);
+
+      final label = '${100 - i * 25}';
+      textPainter.text = TextSpan(
+        text: label,
+        style: const TextStyle(fontSize: 10, color: Colors.black45),
+      );
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(0, y - 6));
+    }
+
+    // Trục X theo thời gian thật của recordedAt, không hardcode 00h/06h nữa.
+    for (int i = 0; i <= 4; i++) {
+      final ratio = i / 4;
+      final x = left + chartW * ratio;
+      final labelMillis = firstTime + ((lastTime - firstTime) * ratio).toInt();
+      final label = _formatTimeLabel(labelMillis);
+
+      canvas.drawLine(Offset(x, top), Offset(x, top + chartH), gridPaint);
+
+      textPainter.text = TextSpan(
+        text: label,
+        style: const TextStyle(fontSize: 10, color: Colors.black45),
+      );
+      textPainter.layout();
+      textPainter.paint(
+        canvas,
+        Offset(x - textPainter.width / 2, top + chartH + 8),
+      );
+    }
+
+    void drawLine(String key, Color color) {
+      final path = Path();
+
+      for (int i = 0; i < logs.length; i++) {
+        final value = _toInt(logs[i][key]).clamp(0, 100);
+        final currentTime = FillLineChart._toMillis(logs[i]['recordedAt']);
+
+        final progress = totalDuration <= 0
+            ? i / (logs.length - 1)
+            : (currentTime - firstTime) / totalDuration;
+
+        final x = left + chartW * progress.clamp(0.0, 1.0);
+        final y = top + chartH * (1 - value / 100);
+
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+
+      final paint = Paint()
+        ..color = color
+        ..strokeWidth = 2.6
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+
+      canvas.drawPath(path, paint);
+    }
+
+    drawLine('fillOrganic', const Color(0xFF2D8CFF));
+    drawLine('fillRecycle', const Color(0xFFF6C000));
+    drawLine('fillNonRecycle', const Color(0xFFFF8A00));
+    drawLine('fillHazardous', const Color(0xFFFF3B30));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
 
 class _BinDetail {
   final int fillPercent;
@@ -476,6 +847,7 @@ class _BinDetail {
   final int fillRecycle;
   final int fillNonRecycle;
   final int fillHazardous;
+  final List<Map<String, dynamic>> logs;
 
   const _BinDetail({
     required this.fillPercent,
@@ -485,6 +857,7 @@ class _BinDetail {
     required this.fillRecycle,
     required this.fillNonRecycle,
     required this.fillHazardous,
+    required this.logs,
   });
 }
 
@@ -509,15 +882,15 @@ class MultiColorRingPainter extends CustomPainter {
     canvas.drawArc(rect, 0, 6.28, false, bgPaint);
 
     final colors = [
-      const Color(0xFF2D8CFF), // Rác 1
-      const Color(0xFFF6C000), // Rác 2
-      const Color(0xFFFF8A00), // Rác 3
-      const Color(0xFFFF3B30), // Rác 4
+      const Color(0xFF2D8CFF),
+      const Color(0xFFF6C000),
+      const Color(0xFFFF8A00),
+      const Color(0xFFFF3B30),
     ];
 
     final sweepAngle = 6.28318 * (percent / 100);
 
-    double startAngle = -1.57; // bắt đầu từ trên
+    double startAngle = -1.57;
 
     for (int i = 0; i < colors.length; i++) {
       final paint = Paint()

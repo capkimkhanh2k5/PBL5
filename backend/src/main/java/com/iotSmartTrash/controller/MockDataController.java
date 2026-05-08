@@ -20,100 +20,28 @@ public class MockDataController {
     @GetMapping("/api/mock/bin002/raw-logs")
     public String createBin002MockRawLogs() {
         String binId = "bin_002";
-
         LocalDateTime startTime = LocalDateTime.of(2026, 5, 7, 0, 0);
 
         for (int i = 0; i < 288; i++) {
             LocalDateTime currentTime = startTime.plusMinutes(i * 5L);
+            int minuteOfDay = currentTime.getHour() * 60 + currentTime.getMinute();
+
+            double nonRecycle = getNonRecycle(minuteOfDay);
+            double organic = getOrganic(minuteOfDay);
+            double recycle = getRecycle(minuteOfDay);
+            double hazardous = getHazardous(minuteOfDay);
 
             long recordedAtMillis = currentTime
                     .atZone(ZoneId.of("Asia/Ho_Chi_Minh"))
                     .toInstant()
                     .toEpochMilli();
 
-            int minuteOfDay = currentTime.getHour() * 60 + currentTime.getMinute();
-
-            int organic;
-            int recycle;
-            int nonRecycle;
-            int hazardous;
-
-            if (minuteOfDay <= 360) {
-                organic = interpolate(minuteOfDay, 0, 360, 2, 8);
-                recycle = interpolate(minuteOfDay, 0, 360, 1, 6);
-                nonRecycle = interpolate(minuteOfDay, 0, 360, 2, 7);
-                hazardous = interpolate(minuteOfDay, 0, 360, 0, 1);
-            } else if (minuteOfDay <= 540) {
-                organic = interpolate(minuteOfDay, 360, 540, 8, 25);
-                recycle = interpolate(minuteOfDay, 360, 540, 6, 22);
-                nonRecycle = interpolate(minuteOfDay, 360, 540, 7, 24);
-                hazardous = interpolate(minuteOfDay, 360, 540, 1, 4);
-            } else if (minuteOfDay <= 660) {
-                organic = interpolate(minuteOfDay, 540, 660, 25, 40);
-                recycle = interpolate(minuteOfDay, 540, 660, 22, 36);
-                nonRecycle = interpolate(minuteOfDay, 540, 660, 24, 38);
-                hazardous = interpolate(minuteOfDay, 540, 660, 4, 8);
-            } else if (minuteOfDay <= 780) {
-                organic = interpolate(minuteOfDay, 660, 780, 40, 78);
-                recycle = interpolate(minuteOfDay, 660, 780, 36, 68);
-                nonRecycle = interpolate(minuteOfDay, 660, 780, 38, 75);
-                hazardous = interpolate(minuteOfDay, 660, 780, 8, 15);
-            } else if (minuteOfDay <= 840) {
-                organic = interpolate(minuteOfDay, 780, 840, 78, 95);
-                recycle = interpolate(minuteOfDay, 780, 840, 68, 88);
-                nonRecycle = interpolate(minuteOfDay, 780, 840, 75, 96);
-                hazardous = interpolate(minuteOfDay, 780, 840, 15, 20);
-            } else if (minuteOfDay == 845) {
-                organic = 0;
-                recycle = 0;
-                nonRecycle = 0;
-                hazardous = 0;
-            } else if (minuteOfDay <= 1020) {
-                organic = interpolate(minuteOfDay, 850, 1020, 1, 22);
-                recycle = interpolate(minuteOfDay, 850, 1020, 1, 18);
-                nonRecycle = interpolate(minuteOfDay, 850, 1020, 1, 24);
-                hazardous = interpolate(minuteOfDay, 850, 1020, 0, 3);
-            } else if (minuteOfDay <= 1200) {
-                organic = interpolate(minuteOfDay, 1020, 1200, 22, 58);
-                recycle = interpolate(minuteOfDay, 1020, 1200, 18, 52);
-                nonRecycle = interpolate(minuteOfDay, 1020, 1200, 24, 60);
-                hazardous = interpolate(minuteOfDay, 1020, 1200, 3, 8);
-            } else if (minuteOfDay <= 1290) {
-                organic = interpolate(minuteOfDay, 1200, 1290, 58, 82);
-                recycle = interpolate(minuteOfDay, 1200, 1290, 52, 75);
-                nonRecycle = interpolate(minuteOfDay, 1200, 1290, 60, 85);
-                hazardous = interpolate(minuteOfDay, 1200, 1290, 8, 12);
-            } else if (minuteOfDay < 1320) {
-                organic = 85;
-                recycle = 78;
-                nonRecycle = 88;
-                hazardous = 13;
-            } else if (minuteOfDay == 1320) {
-                organic = 0;
-                recycle = 0;
-                nonRecycle = 0;
-                hazardous = 0;
-            } else {
-                organic = interpolate(minuteOfDay, 1325, 1435, 0, 8);
-                recycle = interpolate(minuteOfDay, 1325, 1435, 0, 6);
-                nonRecycle = interpolate(minuteOfDay, 1325, 1435, 0, 9);
-                hazardous = interpolate(minuteOfDay, 1325, 1435, 0, 1);
-            }
-
-            organic = clamp(organic);
-            recycle = clamp(recycle);
-            nonRecycle = clamp(nonRecycle);
-            hazardous = clamp(hazardous);
-
             Map<String, Object> log = new HashMap<>();
-            log.put("fillOrganic", organic * 1.0);
-            log.put("fillRecycle", recycle * 1.0);
-            log.put("fillNonRecycle", nonRecycle * 1.0);
-            log.put("fillHazardous", hazardous * 1.0);
-            log.put(
-                    "recordedAt",
-                    Timestamp.ofTimeSecondsAndNanos(recordedAtMillis / 1000, 0)
-            );
+            log.put("fillNonRecycle", round1(nonRecycle));
+            log.put("fillOrganic", round1(organic));
+            log.put("fillRecycle", round1(recycle));
+            log.put("fillHazardous", round1(hazardous));
+            log.put("recordedAt", Timestamp.ofTimeSecondsAndNanos(recordedAtMillis / 1000, 0));
 
             firestore.collection("bin_raw_sensor_logs")
                     .document(binId)
@@ -121,18 +49,43 @@ public class MockDataController {
                     .add(log);
         }
 
-        return "Created one-day mock raw sensor logs for bin_002 successfully";
+        return "Created fixed mock data like demo chart.";
     }
 
-    private int interpolate(int current, int start, int end, int startValue, int endValue) {
-        if (current <= start) return startValue;
-        if (current >= end) return endValue;
-
-        double ratio = (double) (current - start) / (end - start);
-        return (int) Math.round(startValue + ratio * (endValue - startValue));
+    private double getNonRecycle(int m) {
+        return interpolate(m, new int[]{0, 180, 360, 420, 480, 525, 535, 540, 600, 720, 840, 960, 1080, 1200, 1320, 1435},
+                new double[]{65, 66.5, 68, 69, 73, 86, 91, 3, 4, 10, 15, 18, 30, 38, 41, 43});
     }
 
-    private int clamp(int value) {
-        return Math.max(0, Math.min(100, value));
+    private double getOrganic(int m) {
+        return interpolate(m, new int[]{0, 180, 360, 480, 525, 535, 540, 660, 720, 780, 900, 1020, 1080, 1200, 1320, 1435},
+                new double[]{40, 40.5, 41, 43, 44, 45, 2, 5, 12, 18, 21, 23, 28, 32, 34, 35});
+    }
+
+    private double getRecycle(int m) {
+        return interpolate(m, new int[]{0, 180, 360, 480, 525, 535, 540, 660, 780, 900, 960, 1080, 1200, 1320, 1435},
+                new double[]{49, 49.5, 50, 53, 55, 57, 1.5, 4, 10, 18, 25, 33, 36, 38, 39});
+    }
+
+    private double getHazardous(int m) {
+        return interpolate(m, new int[]{0, 360, 480, 535, 540, 720, 840, 960, 1200, 1435},
+                new double[]{5, 5.5, 6.0, 6.8, 1.3, 1.7, 3.2, 3.5, 4.4, 5.0});
+    }
+
+    private double interpolate(int minute, int[] times, double[] values) {
+        if (minute <= times[0]) return values[0];
+
+        for (int i = 0; i < times.length - 1; i++) {
+            if (minute >= times[i] && minute <= times[i + 1]) {
+                double ratio = (minute - times[i]) * 1.0 / (times[i + 1] - times[i]);
+                return values[i] + ratio * (values[i + 1] - values[i]);
+            }
+        }
+
+        return values[values.length - 1];
+    }
+
+    private double round1(double value) {
+        return Math.round(value * 10.0) / 10.0;
     }
 }
