@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 
 /*
     Model Meta Data của Bin
-    Lưu vị trí, địa chỉ, mô tả 
+    Lưu vị trí, địa chỉ, mô tả
 */
 @Data
 @NoArgsConstructor
@@ -19,12 +19,30 @@ public class BinMetadata {
     private String id;
     private String name;
 
-    @PropertyName("location_description")
     private String locationDescription;
 
     private Double latitude;
     private Double longitude;
 
-    @PropertyName("installed_at")
     private Timestamp installedAt;
+
+    @PropertyName("location_description")
+    public String getLocationDescription() {
+        return locationDescription;
+    }
+
+    @PropertyName("location_description")
+    public void setLocationDescription(String locationDescription) {
+        this.locationDescription = locationDescription;
+    }
+
+    @PropertyName("installed_at")
+    public Timestamp getInstalledAt() {
+        return installedAt;
+    }
+
+    @PropertyName("installed_at")
+    public void setInstalledAt(Timestamp installedAt) {
+        this.installedAt = installedAt;
+    }
 }

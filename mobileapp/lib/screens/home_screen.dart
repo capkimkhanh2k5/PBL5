@@ -5,7 +5,8 @@ import 'ai_chat_screen.dart';
 import 'settings_screen.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
-import '../services/api_service.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
+import 'update_bin_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final ApiService apiService;
@@ -52,7 +53,7 @@ class HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final api = ApiService(authService: _authService);
+      final api = widget.apiService;
       final results = await Future.wait([
         api.getAllBins(),
         api.getAllBinStatuses(),
@@ -338,7 +339,11 @@ class HomeScreenState extends State<HomeScreen> {
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     final it = filtered[index];
-                    return TrashCanCard(item: it);
+                    return TrashCanCard(
+                      item: it,
+                      onUpdate: () => _updateBin(it),
+                      onDelete: () => onDelete(it.id),
+                    );
                   },
                 ),
             ],
@@ -347,6 +352,115 @@ class HomeScreenState extends State<HomeScreen> {
       ),
     )
     );
+  }
+
+
+  void _updateBin(TrashCanItem item) async {
+    final updated = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => UpdateBinScreen(
+          binId: item.id,
+          apiService: widget.apiService,
+        ),
+      ),
+    );
+
+    if (updated == true) {
+      _loadData();
+    }
+  }
+
+  void onDelete(String binId) async {
+    const darkGreen = Color(0xFF0B5D1E);
+
+    bool? confirmDelete = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+
+          // số càng lớn thì khung càng nhỏ ngang
+          insetPadding: const EdgeInsets.symmetric(horizontal: 60),
+
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+          contentPadding: const EdgeInsets.fromLTRB(24, 18, 24, 16),
+          actionsPadding: const EdgeInsets.fromLTRB(12, 0, 24, 18),
+
+          title: const Text(
+            "Delete",
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.normal,
+              color: Colors.black,
+            ),
+          ),
+
+          content: const Text(
+            "Do you want to delete this bin?",
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.normal,
+              color: Colors.black87,
+            ),
+          ),
+
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(false);
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.black,
+                textStyle: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              child: const Text("No"),
+            ),
+
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(true);
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: darkGreen,
+                textStyle: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              child: const Text("Yes"),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmDelete == true) {
+      try {
+        await widget.apiService.deleteBin(binId);
+
+        setState(() {
+          _items.removeWhere((item) => item.id == binId);
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Item deleted")),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Error deleting item")),
+        );
+      }
+    }
   }
 }
 
@@ -500,9 +614,16 @@ class TrashCanItem {
 }
 
 class TrashCanCard extends StatelessWidget {
-  const TrashCanCard({super.key, required this.item});
+  const TrashCanCard({
+    super.key,
+    required this.item,
+    required this.onUpdate,
+    required this.onDelete,
+  });
 
   final TrashCanItem item;
+  final VoidCallback onUpdate;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -511,65 +632,94 @@ class TrashCanCard extends StatelessWidget {
 
     final pctText = "${(item.percent * 100).round()}%";
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => BinDetailScreen(binId: item.id),
+    return Slidable(
+      key: ValueKey(item.id),
+
+      // Vuốt item sang trái sẽ hiện nút bên phải
+      endActionPane: ActionPane(
+        motion: const DrawerMotion(),
+        extentRatio: 0.45,
+        children: [
+          SlidableAction(
+            onPressed: (_) => onUpdate(),
+            backgroundColor: Color(0xFFFFB74D),
+            foregroundColor: Colors.white,
+            icon: Icons.edit,
+            borderRadius: BorderRadius.circular(18),
           ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-        decoration: BoxDecoration(
-          color: plantTile,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.delete_outline, color: Colors.black87),
-            const SizedBox(width: 10),
+          SlidableAction(
+            onPressed: (_) => onDelete(),
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+            icon: Icons.delete,
+            borderRadius: BorderRadius.circular(18),
+          )
+        ],
+      ),
 
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.id,
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    item.lastEmptiedText,
-                    style: TextStyle(
-                        color: Colors.black.withOpacity(0.65),
-                        fontWeight: FontWeight.w600),
-                  ),
-                ],
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => BinDetailScreen(binId: item.id),
+            ),
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          decoration: BoxDecoration(
+            color: plantTile,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
               ),
-            ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.delete_outline, color: Colors.black87),
+              const SizedBox(width: 10),
 
-            _RingPercent(
-              percent: item.percent,
-              text: pctText,
-              color: green,
-            ),
-          ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.id,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.lastEmptiedText,
+                      style: TextStyle(
+                        color: Colors.black.withOpacity(0.65),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              _RingPercent(
+                percent: item.percent,
+                text: pctText,
+                color: green,
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
-}  
+}
 
 class _RingPercent extends StatelessWidget {
   const _RingPercent({

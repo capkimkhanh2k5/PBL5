@@ -220,5 +220,50 @@ class ApiService {
     final response = await _dio.get('/ai/context');
     return Map<String, dynamic>.from(response.data as Map);
   }
+
+  Future<void> updateBin({
+    required String binId,
+    required String name,
+    String? locationDescription,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final id = binId.trim();
+    final trimmedName = name.trim();
+
+    if (id.isEmpty) {
+      throw ArgumentError('binId must not be empty');
+    }
+
+    if (trimmedName.isEmpty) {
+      throw ArgumentError('name must not be empty');
+    }
+
+    if (latitude < -90 || latitude > 90) {
+      throw ArgumentError.value(latitude, 'latitude', 'Latitude must be in [-90, 90]');
+    }
+
+    if (longitude < -180 || longitude > 180) {
+      throw ArgumentError.value(longitude, 'longitude', 'Longitude must be in [-180, 180]');
+    }
+
+    await _dio.put('/bins/${Uri.encodeComponent(id)}', data: {
+      'name': trimmedName,
+      'locationDescription': locationDescription?.trim(),
+      'latitude': latitude,
+      'longitude': longitude,
+    });
+  }
+
+  // Thêm phương thức xóa bin
+  Future<void> deleteBin(String binId) async {
+    final id = binId.trim();
+
+    if (id.isEmpty) {
+      throw ArgumentError('binId must not be empty');
+    }
+
+    await _dio.delete('/bins/${Uri.encodeComponent(id)}');
+  }
 }
 
