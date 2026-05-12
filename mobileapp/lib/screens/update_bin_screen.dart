@@ -1,5 +1,12 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
+
 import '../services/api_service.dart';
+import '../utils/top_toast.dart';
+import 'location_picker_screen.dart';
 
 class UpdateBinScreen extends StatefulWidget {
   final String binId;
@@ -16,13 +23,19 @@ class UpdateBinScreen extends StatefulWidget {
 }
 
 class _UpdateBinScreenState extends State<UpdateBinScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
-  final _latCtrl = TextEditingController();
-  final _lngCtrl = TextEditingController();
 
   bool _isLoading = true;
   bool _isSaving = false;
+
+  double? _latitude;
+  double? _longitude;
+
+  static const darkGreen = Color(0xFF0B5D1E);
+  static const borderGreen = Color(0xFF4B8B3B);
+  static const bgColor = Color(0xFFFBFDF7);
 
   @override
   void initState() {
@@ -34,15 +47,18 @@ class _UpdateBinScreenState extends State<UpdateBinScreen> {
   void dispose() {
     _nameCtrl.dispose();
     _locationCtrl.dispose();
-    _latCtrl.dispose();
-    _lngCtrl.dispose();
     super.dispose();
+  }
+
+  double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    return double.tryParse(value.toString());
   }
 
   Future<void> _loadBin() async {
     try {
       final bin = await widget.apiService.getBinById(widget.binId);
-      print("BIN DATA = $bin");
+      debugPrint("BIN DATA = $bin");
 
       _nameCtrl.text = (bin['name'] ?? '').toString();
 
@@ -52,13 +68,15 @@ class _UpdateBinScreenState extends State<UpdateBinScreen> {
               ''
       ).toString();
 
-      _latCtrl.text = (bin['latitude'] ?? '').toString();
-      _lngCtrl.text = (bin['longitude'] ?? '').toString();
+      _latitude = _parseDouble(bin['latitude']);
+      _longitude = _parseDouble(bin['longitude']);
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to load bin')),
+      TopToast.show(
+        context,
+        'Failed to load bin.',
+        type: ToastType.error,
       );
     } finally {
       if (mounted) {
@@ -67,22 +85,79 @@ class _UpdateBinScreenState extends State<UpdateBinScreen> {
     }
   }
 
-  Future<void> _saveUpdate() async {
-    final name = _nameCtrl.text.trim();
-    final location = _locationCtrl.text.trim();
-    final latitude = double.tryParse(_latCtrl.text.trim());
-    final longitude = double.tryParse(_lngCtrl.text.trim());
+  Future<void> _useCurrentLocation() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bin name is required')),
+      if (!serviceEnabled) {
+        throw Exception('Location service is disabled.');
+      }
+
+      var permission = await Geolocator.checkPermission();
+
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw Exception('Location permission is denied.');
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
-      return;
-    }
 
-    if (latitude == null || longitude == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Latitude and longitude are required')),
+      if (!mounted) return;
+
+      setState(() {
+        _latitude = pos.latitude;
+        _longitude = pos.longitude;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      TopToast.show(
+        context,
+        e.toString(),
+        type: ToastType.error,
+      );
+    }
+  }
+
+  Future<void> _pickOnMap() async {
+    final initial = (_latitude != null && _longitude != null)
+        ? LatLng(_latitude!, _longitude!)
+        : null;
+
+    final picked = await Navigator.push<LatLng>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(
+          initialLocation: initial,
+        ),
+      ),
+    );
+
+    if (picked == null || !mounted) return;
+
+    setState(() {
+      _latitude = picked.latitude;
+      _longitude = picked.longitude;
+    });
+  }
+
+  Future<void> _saveUpdate() async {
+    final valid = _formKey.currentState?.validate() ?? false;
+    if (!valid) return;
+
+    if (_latitude == null || _longitude == null) {
+      TopToast.show(
+        context,
+        'Please select location first.',
+        type: ToastType.error,
       );
       return;
     }
@@ -92,24 +167,32 @@ class _UpdateBinScreenState extends State<UpdateBinScreen> {
     try {
       await widget.apiService.updateBin(
         binId: widget.binId,
-        name: name,
-        locationDescription: location,
-        latitude: latitude,
-        longitude: longitude,
+        name: _nameCtrl.text.trim(),
+        locationDescription: _locationCtrl.text.trim(),
+        latitude: _latitude!,
+        longitude: _longitude!,
       );
 
       if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bin updated successfully')),
-      );
 
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to update bin')),
+      var message = 'Failed to update bin.';
+
+      if (e is DioException) {
+        message = e.response?.data?.toString() ??
+            e.message ??
+            'Failed to update bin.';
+      } else {
+        message = e.toString();
+      }
+
+      TopToast.show(
+        context,
+        message,
+        type: ToastType.error,
       );
     } finally {
       if (mounted) {
@@ -120,197 +203,560 @@ class _UpdateBinScreenState extends State<UpdateBinScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const darkGreen = Color(0xFF0B5D1E);
+    final hasLocation = _latitude != null && _longitude != null;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFAF7FD),
+      backgroundColor: bgColor,
       body: SafeArea(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 30),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.arrow_back),
+            : Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 30),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _UpdateHeader(),
+
+                const SizedBox(height: 28),
+
+                _UpdateQrCard(binId: widget.binId),
+
+                const SizedBox(height: 24),
+
+                const _FieldLabel('Bin Name'),
+
+                const SizedBox(height: 8),
+
+                TextFormField(
+                  controller: _nameCtrl,
+                  onTapOutside: (_) {
+                    FocusManager.instance.primaryFocus?.unfocus();
+                  },
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(
+                      Icons.delete_outline,
+                      color: borderGreen,
+                    ),
+                    suffixIcon: const Icon(
+                      Icons.check_circle_outline,
+                      color: borderGreen,
+                    ),
+                    hintText: 'Enter bin name',
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 18,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: borderGreen),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(
+                        color: darkGreen,
+                        width: 1.5,
+                      ),
+                    ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Colors.red),
+                    ),
+                    focusedErrorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Colors.red),
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Update Bin',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 28),
-
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 12,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Bin name is required';
+                    }
+                    return null;
+                  },
                 ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.qr_code_2,
-                      color: Colors.green,
-                      size: 32,
-                    ),
-                    const SizedBox(width: 18),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Bin ID',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            widget.binId,
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            'You are updating this bin information.',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.black54,
-                            ),
-                          ),
-                        ],
+
+                const SizedBox(height: 20),
+
+                const _FieldLabel('Location Description'),
+
+                const SizedBox(height: 8),
+
+                TextFormField(
+                  controller: _locationCtrl,
+                  onTapOutside: (_) {
+                    FocusManager.instance.primaryFocus?.unfocus();
+                  },
+                  minLines: 3,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    prefixIcon: const Padding(
+                      padding: EdgeInsets.only(bottom: 54),
+                      child: Icon(
+                        Icons.location_on_outlined,
+                        color: borderGreen,
                       ),
                     ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 22),
-
-              TextField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Bin Name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              TextField(
-                controller: _locationCtrl,
-                minLines: 3,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Location Description',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-
-              const SizedBox(height: 22),
-
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 12,
-                      offset: const Offset(0, 6),
+                    hintText: 'Enter location description',
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 18,
                     ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Bin Position',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: borderGreen),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(
+                        color: darkGreen,
+                        width: 1.5,
                       ),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    TextField(
-                      controller: _latCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Latitude',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    TextField(
-                      controller: _lngCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Longitude',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 34),
-
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton.icon(
-                  onPressed: _isSaving ? null : _saveUpdate,
-                  icon: _isSaving
-                      ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                      : const Icon(Icons.save_outlined),
-                  label: Text(
-                    _isSaving ? 'Saving...' : 'Update Bin',
-                    style: const TextStyle(fontSize: 17),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: darkGreen,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
                     ),
                   ),
                 ),
+
+                const SizedBox(height: 22),
+
+                _UpdatePositionCard(
+                  latitude: _latitude,
+                  longitude: _longitude,
+                  hasLocation: hasLocation,
+                  saving: _isSaving,
+                  onUseCurrentLocation: _useCurrentLocation,
+                  onPickOnMap: _pickOnMap,
+                ),
+
+                const SizedBox(height: 28),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 58,
+                  child: ElevatedButton.icon(
+                    onPressed: _isSaving ? null : _saveUpdate,
+                    icon: _isSaving
+                        ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                        : const Icon(Icons.save_outlined),
+                    label: Text(
+                      _isSaving ? 'Saving...' : 'Update Bin',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: darkGreen,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor:
+                      darkGreen.withOpacity(0.45),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UpdateHeader extends StatelessWidget {
+  const _UpdateHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton(
+          onPressed: () {
+            FocusManager.instance.primaryFocus?.unfocus();
+            Navigator.pop(context);
+          },
+          icon: const Icon(
+            Icons.arrow_back,
+            size: 28,
+          ),
+        ),
+        const SizedBox(width: 8),
+        const Expanded(
+          child: Text(
+            'Update Bin',
+            style: TextStyle(
+              fontSize: 29,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
               ),
             ],
           ),
+          child: const Icon(
+            Icons.eco_outlined,
+            color: Color(0xFF2F6B3D),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _UpdateQrCard extends StatelessWidget {
+  const _UpdateQrCard({
+    required this.binId,
+  });
+
+  final String binId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: const Color(0xFFE5EEDC),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF6C8),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.qr_code_2,
+              color: Color(0xFF4CAF50),
+              size: 36,
+            ),
+          ),
+
+          const SizedBox(width: 16),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Bin ID',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF2F6B3D),
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  binId,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1,
+                    color: Colors.black87,
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                const Text(
+                  'You are updating this bin information.',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: Colors.black54,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 2),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+          color: Color(0xFF12351E),
+        ),
+      ),
+    );
+  }
+}
+
+class _UpdatePositionCard extends StatelessWidget {
+  const _UpdatePositionCard({
+    required this.latitude,
+    required this.longitude,
+    required this.hasLocation,
+    required this.saving,
+    required this.onUseCurrentLocation,
+    required this.onPickOnMap,
+  });
+
+  final double? latitude;
+  final double? longitude;
+  final bool hasLocation;
+  final bool saving;
+  final VoidCallback onUseCurrentLocation;
+  final VoidCallback onPickOnMap;
+
+  static const darkGreen = Color(0xFF0B5D1E);
+
+  @override
+  Widget build(BuildContext context) {
+    final LatLng? point = hasLocation ? LatLng(latitude!, longitude!) : null;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.07),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.location_on_outlined,
+                color: Colors.black87,
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Bin Position',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const Spacer(),
+              if (hasLocation)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF6C8),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'Selected',
+                    style: TextStyle(
+                      color: darkGreen,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: SizedBox(
+              height: 145,
+              width: double.infinity,
+              child: hasLocation
+                  ? FlutterMap(
+                key: ValueKey(
+                  '${point!.latitude}_${point.longitude}',
+                ),
+                options: MapOptions(
+                  initialCenter: point,
+                  initialZoom: 14.5,
+                  interactionOptions: const InteractionOptions(
+                    flags: InteractiveFlag.none,
+                  ),
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate:
+                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.example.pbl5Flutter',
+                  ),
+                  CircleLayer(
+                    circles: [
+                      CircleMarker(
+                        point: point,
+                        radius: 45,
+                        color: const Color(0xFF4CAF50).withOpacity(0.18),
+                        borderStrokeWidth: 0,
+                      ),
+                    ],
+                  ),
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: point,
+                        width: 52,
+                        height: 52,
+                        child: const Icon(
+                          Icons.location_pin,
+                          color: Color(0xFF2F9E44),
+                          size: 48,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              )
+                  : Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5EF),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.map_outlined,
+                        color: Colors.black38,
+                        size: 36,
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Map preview will appear here',
+                        style: TextStyle(
+                          color: Colors.black45,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          _PositionButton(
+            icon: Icons.my_location,
+            label: 'Use current location',
+            onPressed: saving ? null : onUseCurrentLocation,
+          ),
+
+          const SizedBox(height: 12),
+
+          _PositionButton(
+            icon: Icons.map_outlined,
+            label: 'Pick on map',
+            onPressed: saving ? null : onPickOnMap,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PositionButton extends StatelessWidget {
+  const _PositionButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon),
+        label: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 15.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF2F6B3D),
+          side: BorderSide(
+            color: Colors.black.withOpacity(0.12),
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
         ),
       ),
     );

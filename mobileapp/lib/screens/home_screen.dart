@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'update_bin_screen.dart';
+import '../utils/top_toast.dart';
 
 class HomeScreen extends StatefulWidget {
   final ApiService apiService;
@@ -367,7 +368,15 @@ class HomeScreenState extends State<HomeScreen> {
     );
 
     if (updated == true) {
-      _loadData();
+      await _loadData();
+
+      if (!mounted) return;
+
+      TopToast.show(
+        context,
+        'Bin updated successfully.',
+        type: ToastType.success,
+      );
     }
   }
 
@@ -452,12 +461,16 @@ class HomeScreenState extends State<HomeScreen> {
           _items.removeWhere((item) => item.id == binId);
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Item deleted")),
+        TopToast.show(
+          context,
+          'Bin deleted successfully.',
+          type: ToastType.success,
         );
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Error deleting item")),
+        TopToast.show(
+          context,
+          'Error deleting item.',
+          type: ToastType.error,
         );
       }
     }

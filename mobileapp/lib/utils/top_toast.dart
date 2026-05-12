@@ -4,13 +4,26 @@ import 'package:flutter/material.dart';
 enum ToastType { success, error, info }
 
 class TopToast {
+  static OverlayEntry? _currentEntry;
+  static Timer? _timer;
+
   static void show(
-    BuildContext context,
-    String message, {
-    ToastType type = ToastType.info,
-    Duration duration = const Duration(seconds: 3),
-  }) {
-    final overlay = Overlay.of(context);
+      BuildContext context,
+      String message, {
+        ToastType type = ToastType.info,
+        Duration duration = const Duration(seconds: 3),
+      }) {
+    _timer?.cancel();
+
+    if (_currentEntry != null && _currentEntry!.mounted) {
+      _currentEntry!.remove();
+    }
+
+    _currentEntry = null;
+
+    final overlay = Overlay.maybeOf(context);
+    if (overlay == null) return;
+
     late OverlayEntry overlayEntry;
 
     overlayEntry = OverlayEntry(
@@ -18,18 +31,29 @@ class TopToast {
         message: message,
         type: type,
         onDismissed: () {
+          _timer?.cancel();
+
           if (overlayEntry.mounted) {
             overlayEntry.remove();
+          }
+
+          if (_currentEntry == overlayEntry) {
+            _currentEntry = null;
           }
         },
       ),
     );
 
+    _currentEntry = overlayEntry;
     overlay.insert(overlayEntry);
 
-    Timer(duration, () {
+    _timer = Timer(duration, () {
       if (overlayEntry.mounted) {
         overlayEntry.remove();
+      }
+
+      if (_currentEntry == overlayEntry) {
+        _currentEntry = null;
       }
     });
   }
@@ -50,29 +74,39 @@ class _TopToastWidget extends StatefulWidget {
   State<_TopToastWidget> createState() => _TopToastWidgetState();
 }
 
-class _TopToastWidgetState extends State<_TopToastWidget> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<Offset> _offsetAnimation;
-  late Animation<double> _fadeAnimation;
+class _TopToastWidgetState extends State<_TopToastWidget>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<Offset> _offsetAnimation;
+  late final Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
+
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 300),
     );
 
     _offsetAnimation = Tween<Offset>(
-      begin: const Offset(0.0, -1.2),
+      begin: const Offset(0.0, -0.45),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutBack,
-    ));
+    ).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOutCubic,
+      ),
+    );
 
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOut,
+      ),
     );
 
     _controller.forward();
@@ -84,33 +118,32 @@ class _TopToastWidgetState extends State<_TopToastWidget> with SingleTickerProvi
     super.dispose();
   }
 
-  Color _getBackgroundColor() {
+  Color _getIconBackgroundColor() {
     switch (widget.type) {
       case ToastType.success:
-        return const Color(0xFF2F6B3D); // SmartBin green
+        return const Color(0xFF4CAF50);
       case ToastType.error:
-        return const Color(0xFFFF4B4B); // Errors
+        return const Color(0xFFE53935);
       case ToastType.info:
-      default:
-        return Colors.black87;
+        return const Color(0xFF2F6B3D);
     }
   }
 
   IconData _getIcon() {
     switch (widget.type) {
       case ToastType.success:
-        return Icons.check_circle_outline;
+        return Icons.check;
       case ToastType.error:
-        return Icons.error_outline;
+        return Icons.close;
       case ToastType.info:
-      default:
         return Icons.info_outline;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final double topMargin = MediaQuery.of(context).padding.top + 16;
+    final double topMargin = MediaQuery.of(context).padding.top + 12;
+
     return Positioned(
       top: topMargin,
       left: 16,
@@ -121,37 +154,66 @@ class _TopToastWidgetState extends State<_TopToastWidget> with SingleTickerProvi
           position: _offsetAnimation,
           child: FadeTransition(
             opacity: _fadeAnimation,
-            child: GestureDetector(
-              onTap: widget.onDismissed,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: _getBackgroundColor(),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 16,
-                      offset: const Offset(0, 8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 14,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.90),
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.22),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: _getIconBackgroundColor(),
+                      shape: BoxShape.circle,
                     ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Icon(_getIcon(), color: Colors.white, size: 24),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        widget.message,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w600,
-                        ),
+                    child: Icon(
+                      _getIcon(),
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  Expanded(
+                    child: Text(
+                      widget.message,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: widget.onDismissed,
+                    child: const Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
