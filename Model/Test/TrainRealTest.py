@@ -721,16 +721,27 @@ def build_review_overlay(frozen_bgr: np.ndarray,
             by1 = 162 + row * (avail_h + gap)
             by2 = by1 + avail_h
 
-            bg_color = (40, 90, 180) if col == 0 else (60, 60, 80)
+            # Highlight class mà AI đã đoán (xanh lá nổi bật)
+            is_ai_pick = (cls == locked_class)
+            if is_ai_pick:
+                bg_color    = (30, 140, 50)    # xanh lá đậm
+                border_clr  = (60, 255, 100)   # viền xanh sáng
+            else:
+                bg_color    = (40, 90, 180) if col == 0 else (60, 60, 80)
+                border_clr  = (110, 110, 140)
+
             cv2.rectangle(canvas, (bx1, by1), (bx2, by2), bg_color, -1)
-            cv2.rectangle(canvas, (bx1, by1), (bx2, by2), (110, 110, 140), 2)
+            cv2.rectangle(canvas, (bx1, by1), (bx2, by2), border_clr, 2)
 
             label = f"{i+1}. {cls}"
+            if is_ai_pick:
+                label += " * AI"
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.50, 1)
             tx = bx1 + (avail_w - tw) // 2
             ty = by1 + (avail_h + th) // 2
+            text_color = (100, 255, 150) if is_ai_pick else (230, 230, 230)
             cv2.putText(canvas, label, (tx, ty),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.50, (230, 230, 230), 1, cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.50, text_color, 1, cv2.LINE_AA)
 
             # Đăng ký: action = "C<index>" (vd "C0", "C1", ...)
             _btn_registry.append({'x1': bx1, 'y1': by1, 'x2': bx2, 'y2': by2,
@@ -744,10 +755,8 @@ def build_review_overlay(frozen_bgr: np.ndarray,
                   font_scale=0.55, thickness=1)
 
     # ── Tiêu đề REVIEW (footer) ─────────────────────────────────────────
-    title_color = (0, 200, 255) if review_phase == "YN" else (0, 165, 255)
-    title_text  = ("Nhan nut hoac bam phim  Y / N / S"
-                   if review_phase == "YN"
-                   else f"Nhan nut hoac bam phim  1-{NUM_CLASSES} / S")
+    title_color = (0, 165, 255)
+    title_text  = f"Nhan nut hoac bam phim  1-{NUM_CLASSES} / S"
     cv2.putText(canvas, title_text,
                 (px + 10, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.42,
                 title_color, 1, cv2.LINE_AA)
@@ -822,7 +831,8 @@ print(f"[INIT] WARMUP {WARMUP_SEC:.0f}s | TTA={N_TTA} | img_size={img_size}")
 print(f"[INIT] INFER_EVERY_N={INFER_EVERY_N}")
 print(f"[INIT] CONF={CONF_THRESH} OBJ={OBJ_THRESH} "
       f"VOTE={VOTE_MIN}/{VOTE_WINDOW} DOMINANT={DOMINANT_RATIO:.0%}")
-print(f"\n[HITL] Phím REVIEW: Y=Đúng  N=Sai(chọn lại)  S=Skip")
+print(f"\n[HITL] REVIEW: Luôn chọn nhãn (1-{NUM_CLASSES}) hoặc S=Skip")
+print(f"[HITL] Class AI đoán được highlight xanh lá + tag '★ AI'")
 print(f"[HITL] Data sẽ lưu vào: {os.path.abspath(DATA_DIR)}/\n")
 
 # ============================================================
@@ -1093,7 +1103,7 @@ try:
                 state = STATE_REVIEW
                 print(f"\n[STATE] LOCKED → REVIEW  ({locked_class} / {locked_bin})")
                 print(f"        Conf={locked_conf*100:.1f}%  Obj={locked_obj*100:.0f}%  γ={locked_gamma:.2f}")
-                print(f"        Phím: Y=Đúng  N=Sai  S=Skip")
+                print(f"        Chọn nhãn: 1-{NUM_CLASSES} hoặc nhấn nút  |  S=Skip")
             else:
                 remaining_hold = MIN_LOCK_HOLD_FRAMES - lock_frame_count
                 cv2.putText(annotated, f"Confirming... {remaining_hold} frames",
@@ -1101,15 +1111,17 @@ try:
                             (200, 200, 0), 1, cv2.LINE_AA)
 
         # =================================================================
-        # STATE: REVIEW  —  Human-in-the-Loop
+        # STATE: REVIEW  —  Human-in-the-Loop (ALWAYS SELECT)
+        # Luôn bắt người dùng chọn nhãn để đa dạng hóa dataset.
+        # Class AI đã đoán được highlight xanh lá + tag '★ AI'.
         # =================================================================
         elif state == STATE_REVIEW:
-            # Hiển thị overlay đóng băng, không update frame mới
+            # Hiển thị overlay SELECT trực tiếp (bỏ bước Y/N)
             review_canvas = build_review_overlay(
                 locked_frozen_bgr, locked_raw_crop,
                 locked_class, locked_bin,
                 locked_conf, locked_obj, locked_gamma,
-                review_phase="YN"
+                review_phase="SELECT"
             )
             draw_session_stats(review_canvas, session_stats, classes)
             cv2.imshow("SmartTrashBin [TrainReal]", review_canvas)
@@ -1118,76 +1130,24 @@ try:
             key    = cv2.waitKey(1) & 0xFF
             action = _pop_click()   # click chuột / touch
 
-            # Ánh xạ phím bàn phím → action (giữ tương thích)
+            # Ánh xạ phím bàn phím → action
             if action is None:
-                if key == ord('y') or key == ord('Y'):
-                    action = "Y"
-                elif key == ord('n') or key == ord('N'):
-                    action = "N"
+                if ord('1') <= key <= ord('0') + NUM_CLASSES:
+                    action = f"C{key - ord('1')}"
                 elif key == ord('s') or key == ord('S'):
                     action = "S"
                 elif key == ord('q'):
                     break
 
-            if action == "Y":
-                # ── ĐÚNG: lưu với nhãn AI ──────────────────────────────
-                log_and_save(locked_raw_crop, locked_class, locked_class,
+            if action is not None and action.startswith("C"):
+                idx         = int(action[1:])
+                final_class = classes[idx]
+                log_and_save(locked_raw_crop, locked_class, final_class,
                              locked_conf, locked_obj, locked_gamma)
-                print(f"[REVIEW] ✓ ĐÚNG — đã lưu: {locked_class}")
-                state          = STATE_COOLDOWN
-                cooldown_count = 0
-                print("[STATE] REVIEW → COOLDOWN")
-
-            elif action == "N":
-                # ── SAI: vào vòng chờ chọn class ───────────────────────
-                print(f"[REVIEW] ✗ SAI — Chọn nhãn đúng (1-{NUM_CLASSES}) "
-                      f"hoặc nhấn nút trên màn hình:")
-                for i, c in enumerate(classes):
-                    print(f"    [{i+1}] {c}")
-
-                selected = False
-                t_wait   = time.time()
-                while time.time() - t_wait < 30.0:
-                    # Render overlay SELECT
-                    sel_canvas = build_review_overlay(
-                        locked_frozen_bgr, locked_raw_crop,
-                        locked_class, locked_bin,
-                        locked_conf, locked_obj, locked_gamma,
-                        review_phase="SELECT"
-                    )
-                    draw_session_stats(sel_canvas, session_stats, classes)
-                    cv2.imshow("SmartTrashBin [TrainReal]", sel_canvas)
-
-                    k2     = cv2.waitKey(50) & 0xFF
-                    act2   = _pop_click()
-
-                    # Phím bàn phím 1-N
-                    if act2 is None:
-                        if ord('1') <= k2 <= ord('0') + NUM_CLASSES:
-                            act2 = f"C{k2 - ord('1')}"
-                        elif k2 == ord('s') or k2 == ord('S'):
-                            act2 = "S"
-                        elif k2 == ord('q'):
-                            raise KeyboardInterrupt
-
-                    if act2 is not None and act2.startswith("C"):
-                        idx         = int(act2[1:])
-                        final_class = classes[idx]
-                        log_and_save(locked_raw_crop, locked_class, final_class,
-                                     locked_conf, locked_obj, locked_gamma)
-                        print(f"[REVIEW] → Đã sửa nhãn: {locked_class} → {final_class}")
-                        selected = True
-                        break
-                    elif act2 == "S":
-                        session_stats['skipped'] += 1
-                        print("[REVIEW] → Skip (không lưu)")
-                        selected = True
-                        break
-
-                if not selected:
-                    print("[REVIEW] ⚠ Timeout 30s — Skip tự động")
-                    session_stats['skipped'] += 1
-
+                if final_class == locked_class:
+                    print(f"[REVIEW] ✓ Xác nhận AI đúng — đã lưu: {final_class}")
+                else:
+                    print(f"[REVIEW] ✗ Sửa nhãn: {locked_class} → {final_class}")
                 state          = STATE_COOLDOWN
                 cooldown_count = 0
                 print("[STATE] REVIEW → COOLDOWN")
