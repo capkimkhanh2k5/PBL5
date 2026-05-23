@@ -53,6 +53,8 @@ public class SecurityConfig {
 
                                                 .requestMatchers("/api/mock/**").permitAll()
 
+                                                .requestMatchers("/api/debug/**").permitAll()
+
                                                 // All other requests require Firebase Bearer Token
                                                 .anyRequest().authenticated())
 

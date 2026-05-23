@@ -18,3 +18,6 @@ iot:
 cors:
   # Danh sách domain được phép gọi API (phân cách bằng dấu phẩy)
   allowed-origins: http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000
+
+smartbin:
+  compartment-capacity-liters: ${SMARTBIN_COMPARTMENT_CAPACITY_LITERS:10}

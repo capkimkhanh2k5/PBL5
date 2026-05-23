@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'bin_detail_screen.dart';
-import 'ai_chat_screen.dart';
 import 'settings_screen.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'update_bin_screen.dart';
 import '../utils/top_toast.dart';
+import 'recycle_statistics_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final ApiService apiService;
@@ -154,7 +154,7 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     const bg = Colors.white;
-    const headerH = 210.0;
+    const headerH = 240.0;
 
     final currentUser = _authService.currentUser;
     final rawName = currentUser?.displayName ?? '';
@@ -184,125 +184,180 @@ class HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Header ảnh + greeting + search (giống mẫu plant)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(22),
-                child: SizedBox(
-                  height: headerH,
-                  width: double.infinity,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.asset(
-                        "assets/images/leaves.jpg",
-                        fit: BoxFit.cover,
-                      ),
-                      // overlay nhẹ để chữ nổi
-                      Container(color: Colors.black.withOpacity(0.18)),
-
-                      Positioned(
-                        left: 16,
-                        top: 30,
-                        right: 16,
-                        child: Row(
+              SizedBox(
+                height: 502,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(22),
+                      child: SizedBox(
+                        height: headerH,
+                        width: double.infinity,
+                        child: Stack(
+                          fit: StackFit.expand,
                           children: [
-                            // LEFT: Greeting
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                            Image.asset(
+                              "assets/images/leaves.jpg",
+                              fit: BoxFit.cover,
+                            ),
+
+                            Container(
+                              color: Colors.black.withOpacity(0.18),
+                            ),
+
+                            Positioned(
+                              left: 16,
+                              top: 30,
+                              right: 16,
+                              child: Row(
                                 children: [
-                                  Text(
-                                    "Hello, $displayName!",
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 30,
-                                      fontWeight: FontWeight.w800,
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          "Hello, $displayName!",
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 28,
+                                            fontWeight: FontWeight.w800,
+                                            height: 1.12,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.cloud_outlined,
+                                              color: Colors.white.withOpacity(0.9),
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              "Sun Cloudy 22°",
+                                              style: TextStyle(
+                                                color: Colors.white.withOpacity(0.9),
+                                                fontSize: 15,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      Icon(Icons.cloud_outlined,
-                                          color: Colors.white.withOpacity(0.9), size: 18),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        "Sun Cloudy 22°",
-                                        style: TextStyle(
-                                          color: Colors.white.withOpacity(0.9),
-                                          fontSize: 15,
+
+                                  const SizedBox(width: 12),
+
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(20),
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const SettingsScreen(),
+                                        ),
+                                      );
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: Colors.white.withOpacity(0.4),
                                         ),
                                       ),
-                                    ],
+                                      child: const Icon(
+                                        Icons.settings,
+                                        color: Colors.white,
+                                        size: 18,
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
 
-                            const SizedBox(width: 12),
-
-                            // RIGHT: SETTINGS + LOGOUT
-                            Row(
-                              children: [
-                                // SETTINGS
-                                InkWell(
-                                  borderRadius: BorderRadius.circular(20),
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => const SettingsScreen(),
-                                      ),
-                                    );
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(color: Colors.white.withOpacity(0.4)),
-                                    ),
-                                    child: const Icon(Icons.settings,
-                                        color: Colors.white, size: 18),
-                                  ),
-                                ),
-
-                                const SizedBox(width: 8),
-                              ],
+                            Positioned(
+                              left: 16,
+                              right: 16,
+                              bottom: 42,
+                              child: _SearchTextField(
+                                controller: _searchCtrl,
+                                hint: "Search bin, location...",
+                                onChanged: (v) => setState(() => _query = v),
+                                onClear: () {
+                                  _searchCtrl.clear();
+                                  setState(() => _query = '');
+                                },
+                              ),
                             ),
                           ],
                         ),
                       ),
+                    ),
 
-
-                      // Search bar (gõ được)
-                      Positioned(
-                        left: 16,
-                        right: 16,
-                        bottom: 16,
-                        child: _SearchTextField(
-                          controller: _searchCtrl,
-                          hint: "Search",
-                          onChanged: (v) => setState(() => _query = v),
-                          onClear: () {
-                            _searchCtrl.clear();
-                            setState(() => _query = '');
-                          },
-                        ),
+                    Positioned(
+                      left: 10,
+                      right: 10,
+                      top: headerH - 36,
+                      child: RecycleWeeklySummaryCard(
+                        apiService: widget.apiService,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => RecycleStatisticsScreen(
+                                apiService: widget.apiService,
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
 
-              const SizedBox(height: 14),
-
-              // Ask your plant card
-              AskAiCard(apiService: widget.apiService),
-
-              const SizedBox(height: 16),
-
-              const Text(
-                "All",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      "All Smart Bins",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.filter_list,
+                        size: 18,
+                        color: Colors.black54,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        "All",
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black.withOpacity(0.65),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.keyboard_arrow_down,
+                        size: 18,
+                        color: Colors.black54,
+                      ),
+                    ],
+                  ),
+                ],
               ),
 
               const SizedBox(height: 10),
@@ -523,96 +578,6 @@ class _SearchTextField extends StatelessWidget {
   }
 }
 
-class AskAiCard extends StatelessWidget {
-  final ApiService apiService;
-
-  const AskAiCard({
-    super.key,
-    required this.apiService,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const bg = Color(0xFFEAF6C8);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => AiChatScreen(
-              apiService: apiService,
-            ),
-          ),
-        );
-      },
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Ask SmartBin\nAI Assistant!",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      height: 1.05,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    "Check fill levels, schedules, history\nand map locations instantly.",
-                    style: TextStyle(fontSize: 12.5, height: 1.25),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Container(
-              width: 70,
-              height: 70,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFFFFE8F7D6),
-                    Color(0xFFFFD4EDB2),
-                  ],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.10),
-                    blurRadius: 12,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: const Icon(Icons.smart_toy_outlined, size: 30),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class TrashCanItem {
   final String id;
@@ -720,12 +685,12 @@ class TrashCanCard extends StatelessWidget {
                   ],
                 ),
               ),
-
               _RingPercent(
                 percent: item.percent,
                 text: pctText,
                 color: green,
               ),
+
             ],
           ),
         ),
@@ -762,6 +727,395 @@ class _RingPercent extends StatelessWidget {
           Text(
             text,
             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RecycleWeeklySummaryCard extends StatefulWidget {
+  const RecycleWeeklySummaryCard({
+    super.key,
+    required this.apiService,
+    required this.onTap,
+  });
+
+  final ApiService apiService;
+  final VoidCallback onTap;
+
+  @override
+  State<RecycleWeeklySummaryCard> createState() =>
+      _RecycleWeeklySummaryCardState();
+}
+
+class _RecycleWeeklySummaryCardState extends State<RecycleWeeklySummaryCard> {
+  static const darkGreen = Color(0xFF0B5D1E);
+  static const lightGreen = Color(0xFFEAF6C8);
+
+  bool _isLoading = true;
+  String? _error;
+
+  List<_RecycleDay> _data = [];
+  double _totalLiters = 0.0;
+  int _percentChange = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWeeklySummary();
+  }
+
+  Future<void> _loadWeeklySummary() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final start = today.subtract(const Duration(days: 6));
+
+      final result = await widget.apiService.getWeeklyRecycleStatistics(
+        startDate: _formatDate(start),
+        endDate: _formatDate(today),
+      );
+
+      final rawDays = result['days'];
+
+      final days = rawDays is List
+          ? rawDays.map((item) {
+        final map = Map<String, dynamic>.from(item as Map);
+
+        return _RecycleDay(
+          (map['label'] ?? '').toString(),
+          _toDouble(map['liters']),
+        );
+      }).toList()
+          : <_RecycleDay>[];
+
+      if (!mounted) return;
+
+      setState(() {
+        _data = days;
+        _totalLiters = _toDouble(result['totalLiters']);
+        _percentChange = _toInt(result['percentChange']);
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _error = 'Failed to load recycle summary.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+
+    return '$y-$m-$d';
+  }
+
+  static double _toDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is int) return value.toDouble();
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString()) ?? 0.0;
+  }
+
+  static int _toInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is double) return value.round();
+    if (value is num) return value.round();
+    return int.tryParse(value.toString()) ?? 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = _data.isEmpty
+        ? 1.0
+        : _data.map((e) => e.liters).reduce((a, b) => a > b ? a : b);
+
+    final safeMaxValue = maxValue <= 0 ? 1.0 : maxValue;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: widget.onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.10),
+              blurRadius: 24,
+              spreadRadius: 1,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: _isLoading
+            ? const SizedBox(
+          height: 245,
+          child: Center(
+            child: CircularProgressIndicator(
+              color: darkGreen,
+            ),
+          ),
+        )
+            : _error != null
+            ? SizedBox(
+          height: 245,
+          child: Center(
+            child: Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        )
+            : Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Weekly Recycle Summary',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+                const Text(
+                  'View details',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: darkGreen,
+                  ),
+                ),
+                const SizedBox(width: 3),
+                const Icon(
+                  Icons.arrow_forward_ios,
+                  size: 9,
+                  color: darkGreen,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 9),
+
+            const Text(
+              'Total recycled',
+              style: TextStyle(
+                fontSize: 11.5,
+                color: Colors.black54,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+
+            const SizedBox(height: 2),
+
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  _totalLiters.toStringAsFixed(1),
+                  style: const TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.black,
+                    height: 1,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    'L',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 4),
+
+            Row(
+              children: [
+                Icon(
+                  _percentChange >= 0
+                      ? Icons.arrow_upward
+                      : Icons.arrow_downward,
+                  size: 13,
+                  color: darkGreen,
+                ),
+                const SizedBox(width: 3),
+                Text(
+                  '${_percentChange >= 0 ? '+' : ''}$_percentChange% vs last week',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: darkGreen,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 10),
+
+            SizedBox(
+              height: 124,
+              width: double.infinity,
+              child: _data.isEmpty
+                  ? const Center(
+                child: Text(
+                  'No recycle data this week.',
+                  style: TextStyle(
+                    color: Colors.black54,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              )
+                  : Center(
+                child: FractionallySizedBox(
+                  widthFactor: 0.82,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: _data.map((item) {
+                      final barHeight =
+                          72 * (item.liters / safeMaxValue);
+
+                      return Expanded(
+                        child: Column(
+                          mainAxisAlignment:
+                          MainAxisAlignment.end,
+                          children: [
+                            Text(
+                              item.liters.toStringAsFixed(1),
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            _FancyBar(height: barHeight),
+                            const SizedBox(height: 8),
+                            Text(
+                              item.label,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.black
+                                    .withOpacity(0.65),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 9),
+
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 7,
+              ),
+              decoration: BoxDecoration(
+                color: lightGreen.withOpacity(0.75),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.eco,
+                    size: 15,
+                    color: darkGreen,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _percentChange >= 0
+                          ? 'Great job! You recycled more than last week.'
+                          : 'Recycled waste decreased compared with last week. Keep improving!',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: darkGreen,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecycleDay {
+  final String label;
+  final double liters;
+
+  const _RecycleDay(this.label, this.liters);
+}
+
+class _FancyBar extends StatelessWidget {
+  const _FancyBar({
+    required this.height,
+  });
+
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 18,
+      height: height,
+      decoration: BoxDecoration(
+        // Không bo góc để cột vuông giống ảnh mẫu
+        borderRadius: BorderRadius.zero,
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF8BC34A),
+            Color(0xFF65A936),
+            Color(0xFF3F8F2F),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF3F8F2F).withOpacity(0.18),
+            blurRadius: 5,
+            offset: const Offset(0, 3),
           ),
         ],
       ),

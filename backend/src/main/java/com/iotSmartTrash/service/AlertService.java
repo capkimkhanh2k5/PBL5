@@ -240,7 +240,7 @@ public class AlertService {
             throw new ServiceException("Cannot resolve offline alert for bin: " + binId, e);
         }
     }
-    @Scheduled(fixedRate = 60000) // mỗi 1 phút
+    //@Scheduled(fixedRate = 300000) // mỗi 5 phút
     public void checkOfflineBins() {
         List<String> binIds = rawSensorLogService.getAllBinIds();
 

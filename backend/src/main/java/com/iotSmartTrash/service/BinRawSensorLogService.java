@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import com.google.cloud.Timestamp;
 
 
 /**
@@ -271,6 +272,43 @@ public class BinRawSensorLogService {
             throw new ServiceException("Cannot get latest raw log: operation interrupted", e);
         } catch (Exception e) {
             throw new ServiceException("Cannot get latest raw log for bin: " + binId, e);
+        }
+    }
+
+    public List<BinRawSensorLog> getLogsForBinBetween(
+            String binId,
+            Timestamp start,
+            Timestamp end
+    ) {
+        try {
+            if (binId == null || binId.isBlank()) {
+                return new ArrayList<>();
+            }
+
+            CollectionReference ref = firestore
+                    .collection(PARENT_COLLECTION)
+                    .document(binId)
+                    .collection(SUB_COLLECTION);
+
+            QuerySnapshot snapshot = ref
+                    .whereGreaterThanOrEqualTo("recordedAt", start)
+                    .whereLessThan("recordedAt", end)
+                    .orderBy("recordedAt", Query.Direction.ASCENDING)
+                    .get()
+                    .get();
+
+            List<BinRawSensorLog> logs = new ArrayList<>();
+
+            for (QueryDocumentSnapshot doc : snapshot.getDocuments()) {
+                logs.add(mapRawLog(doc));
+            }
+
+            return logs;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("Cannot get raw logs between dates: operation interrupted", e);
+        } catch (Exception e) {
+            throw new ServiceException("Cannot get raw logs between dates for bin: " + binId, e);
         }
     }
 

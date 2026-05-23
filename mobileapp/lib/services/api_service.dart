@@ -265,5 +265,22 @@ class ApiService {
 
     await _dio.delete('/bins/${Uri.encodeComponent(id)}');
   }
+
+  Future<Map<String, dynamic>> getWeeklyRecycleStatistics({
+    String? binId,
+    String? startDate,
+    String? endDate,
+  }) async {
+    final response = await _dio.get(
+      '/statistics/recycle/weekly',
+      queryParameters: {
+        if (binId != null && binId.trim().isNotEmpty) 'binId': binId,
+        if (startDate != null) 'startDate': startDate,
+        if (endDate != null) 'endDate': endDate,
+      },
+    );
+
+    return Map<String, dynamic>.from(response.data);
+  }
 }
 
