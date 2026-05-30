@@ -778,7 +778,7 @@ STATE_COOLDOWN  = "COOLDOWN"
 # 15. CAMERA & BACKGROUND SUBTRACTOR
 # ============================================================
 
-cap = cv2.VideoCapture("http://192.168.116.185:4747/video")
+cap = cv2.VideoCapture("http://192.168.4.54:4747/video")
 if not cap.isOpened():
     raise RuntimeError(f"[FATAL] Không mở được camera ID={CAMERA_ID}")
 
