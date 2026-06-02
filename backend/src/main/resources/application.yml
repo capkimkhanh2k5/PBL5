@@ -21,3 +21,8 @@ cors:
 
 smartbin:
   compartment-capacity-liters: ${SMARTBIN_COMPARTMENT_CAPACITY_LITERS:10}
+  # 5 phút 30 giây không có raw sensor log thì tạo cảnh báo OFFLINE
+  offline-after-ms: ${SMARTBIN_OFFLINE_AFTER_MS:330000}
+
+  # Bật/tắt Firestore listener theo dõi raw sensor logs
+  offline-listener-enabled: ${SMARTBIN_OFFLINE_LISTENER_ENABLED:true}

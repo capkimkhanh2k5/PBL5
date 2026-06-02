@@ -224,22 +224,22 @@ class _BinDetailScreenState extends State<BinDetailScreen> {
                     physics: const NeverScrollableScrollPhysics(),
                     children: [
                       WasteMiniCard(
-                        title: 'Organic Waste',
+                        title: 'Organic',
                         percent: d.fillOrganic / 100,
                         color: const Color(0xFF2D8CFF),
                       ),
                       WasteMiniCard(
-                        title: 'Plastic & Paper',
+                        title: 'Recycle',
                         percent: d.fillRecycle / 100,
                         color: const Color(0xFFF6C000),
                       ),
                       WasteMiniCard(
-                        title: 'Metal',
+                        title: 'NonRecycle',
                         percent: d.fillNonRecycle / 100,
                         color: const Color(0xFFFF8A00),
                       ),
                       WasteMiniCard(
-                        title: 'Other Waste',
+                        title: 'Hazardous',
                         percent: d.fillHazardous / 100,
                         color: const Color(0xFFFF3B30),
                       ),

@@ -18,10 +18,13 @@ public class BinResponseDTO {
     private Double latitude;
     private Double longitude;
     private Timestamp installedAt;
+    private Boolean classificationEnabled;
+    private Timestamp classificationUpdatedAt;
 
     public static BinResponseDTO fromModel(BinMetadata bin) {
         if (bin == null)
             return null;
+
         return BinResponseDTO.builder()
                 .id(bin.getId())
                 .name(bin.getName())
@@ -29,6 +32,8 @@ public class BinResponseDTO {
                 .latitude(bin.getLatitude())
                 .longitude(bin.getLongitude())
                 .installedAt(bin.getInstalledAt())
+                .classificationEnabled(bin.getClassificationEnabled())
+                .classificationUpdatedAt(bin.getClassificationUpdatedAt())
                 .build();
     }
 }

@@ -255,6 +255,25 @@ class ApiService {
     });
   }
 
+  Future<Map<String, dynamic>> sendClassificationCommand(
+      String binId, {
+        required bool enabled,
+      }) async {
+    final id = binId.trim();
+
+    if (id.isEmpty) {
+      throw ArgumentError('binId must not be empty');
+    }
+
+    final response = await _dio.patch(
+      '/bins/${Uri.encodeComponent(id)}/classification-command',
+      data: {
+        'value': enabled ? 'ON' : 'OFF',
+      },
+    );
+
+    return Map<String, dynamic>.from(response.data as Map);
+  }
   // Thêm phương thức xóa bin
   Future<void> deleteBin(String binId) async {
     final id = binId.trim();

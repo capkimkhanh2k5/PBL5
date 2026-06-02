@@ -31,6 +31,8 @@ class HomeScreenState extends State<HomeScreen> {
 
   List<TrashCanItem> _items = const [];
 
+  final Set<String> _commandLoadingBinIds = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -82,6 +84,10 @@ class HomeScreenState extends State<HomeScreen> {
             id: id,
             percent: percent,
             lastEmptiedText: _relativeTime(lastUpdated),
+            classificationEnabled: _toBool(
+              b['classificationEnabled'] ?? b['classification_enabled'],
+            ) ??
+                true,
           ),
         );
       }
@@ -95,6 +101,7 @@ class HomeScreenState extends State<HomeScreen> {
               id: id,
               percent: _calcPercent(s),
               lastEmptiedText: _relativeTime(_toInt(s['lastUpdated'])),
+              classificationEnabled: true,
             ),
           );
         }
@@ -124,6 +131,20 @@ class HomeScreenState extends State<HomeScreen> {
     if (value is int) return value;
     if (value is num) return value.toInt();
     return int.tryParse(value?.toString() ?? '');
+  }
+
+  static bool? _toBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+
+    final text = value?.toString().trim().toLowerCase();
+
+    if (text == null || text.isEmpty) return null;
+
+    if (['true', '1', 'on', 'yes'].contains(text)) return true;
+    if (['false', '0', 'off', 'no'].contains(text)) return false;
+
+    return null;
   }
 
   static double _calcPercent(Map<String, dynamic>? status) {
@@ -397,6 +418,8 @@ class HomeScreenState extends State<HomeScreen> {
                     final it = filtered[index];
                     return TrashCanCard(
                       item: it,
+                      isToggling: _commandLoadingBinIds.contains(it.id),
+                      onToggleClassification: () => _toggleClassification(it),
                       onUpdate: () => _updateBin(it),
                       onDelete: () => onDelete(it.id),
                     );
@@ -410,6 +433,65 @@ class HomeScreenState extends State<HomeScreen> {
     );
   }
 
+
+  Future<void> _toggleClassification(TrashCanItem item) async {
+    final nextEnabled = !item.classificationEnabled;
+
+    setState(() {
+      _commandLoadingBinIds.add(item.id);
+
+      _items = _items
+          .map(
+            (e) => e.id == item.id
+            ? e.copyWith(classificationEnabled: nextEnabled)
+            : e,
+      )
+          .toList();
+    });
+
+    try {
+      await widget.apiService.sendClassificationCommand(
+        item.id,
+        enabled: nextEnabled,
+      );
+
+      if (!mounted) return;
+
+      TopToast.show(
+        context,
+        nextEnabled
+            ? 'Classification command sent: ON.'
+            : 'Classification command sent: OFF.',
+        type: ToastType.success,
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _items = _items
+            .map(
+              (x) => x.id == item.id
+              ? x.copyWith(
+            classificationEnabled: item.classificationEnabled,
+          )
+              : x,
+        )
+            .toList();
+      });
+
+      TopToast.show(
+        context,
+        'Error sending classification command.',
+        type: ToastType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _commandLoadingBinIds.remove(item.id);
+        });
+      }
+    }
+  }
 
   void _updateBin(TrashCanItem item) async {
     final updated = await Navigator.push(
@@ -583,23 +665,44 @@ class TrashCanItem {
   final String id;
   final double percent; // 0..1
   final String lastEmptiedText;
+  final bool classificationEnabled;
 
   const TrashCanItem({
     required this.id,
     required this.percent,
     required this.lastEmptiedText,
+    required this.classificationEnabled,
   });
+
+  TrashCanItem copyWith({
+    String? id,
+    double? percent,
+    String? lastEmptiedText,
+    bool? classificationEnabled,
+  }) {
+    return TrashCanItem(
+      id: id ?? this.id,
+      percent: percent ?? this.percent,
+      lastEmptiedText: lastEmptiedText ?? this.lastEmptiedText,
+      classificationEnabled:
+      classificationEnabled ?? this.classificationEnabled,
+    );
+  }
 }
 
 class TrashCanCard extends StatelessWidget {
   const TrashCanCard({
     super.key,
     required this.item,
+    required this.isToggling,
+    required this.onToggleClassification,
     required this.onUpdate,
     required this.onDelete,
   });
 
   final TrashCanItem item;
+  final bool isToggling;
+  final VoidCallback onToggleClassification;
   final VoidCallback onUpdate;
   final VoidCallback onDelete;
 
@@ -613,14 +716,13 @@ class TrashCanCard extends StatelessWidget {
     return Slidable(
       key: ValueKey(item.id),
 
-      // Vuốt item sang trái sẽ hiện nút bên phải
       endActionPane: ActionPane(
         motion: const DrawerMotion(),
         extentRatio: 0.45,
         children: [
           SlidableAction(
             onPressed: (_) => onUpdate(),
-            backgroundColor: Color(0xFFFFB74D),
+            backgroundColor: const Color(0xFFFFB74D),
             foregroundColor: Colors.white,
             icon: Icons.edit,
             borderRadius: BorderRadius.circular(18),
@@ -631,7 +733,7 @@ class TrashCanCard extends StatelessWidget {
             foregroundColor: Colors.white,
             icon: Icons.delete,
             borderRadius: BorderRadius.circular(18),
-          )
+          ),
         ],
       ),
 
@@ -660,7 +762,11 @@ class TrashCanCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Icons.delete_outline, color: Colors.black87),
+              const Icon(
+                Icons.delete_outline,
+                color: Colors.black87,
+              ),
+
               const SizedBox(width: 10),
 
               Expanded(
@@ -674,7 +780,9 @@ class TrashCanCard extends StatelessWidget {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
+
                     const SizedBox(height: 4),
+
                     Text(
                       item.lastEmptiedText,
                       style: TextStyle(
@@ -685,12 +793,124 @@ class TrashCanCard extends StatelessWidget {
                   ],
                 ),
               ),
+
+              // Độ đầy nằm bên trái nút bật/tắt
               _RingPercent(
                 percent: item.percent,
                 text: pctText,
                 color: green,
               ),
 
+              const SizedBox(width: 8),
+
+              // Nút ON/OFF nằm ngoài cùng bên phải
+              _ClassificationToggle(
+                enabled: item.classificationEnabled,
+                isLoading: isToggling,
+                onTap: onToggleClassification,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClassificationToggle extends StatelessWidget {
+  const _ClassificationToggle({
+    required this.enabled,
+    required this.isLoading,
+    required this.onTap,
+  });
+
+  final bool enabled;
+  final bool isLoading;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const green = Color(0xFF0B5D1E);
+    const offGray = Color(0xFF8B8B8B);
+
+    final bgColor = enabled ? green : offGray;
+    final label = enabled ? 'ON' : 'OFF';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: isLoading ? null : onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          width: 68,
+          height: 30,
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              BoxShadow(
+                color: bgColor.withOpacity(0.18),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Align(
+                alignment:
+                enabled ? Alignment.centerLeft : Alignment.centerRight,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: enabled ? 8 : 0,
+                    right: enabled ? 0 : 8,
+                  ),
+                  child: Text(
+                    isLoading ? '...' : label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ),
+              ),
+
+              AnimatedAlign(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                alignment:
+                enabled ? Alignment.centerRight : Alignment.centerLeft,
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.18),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: isLoading
+                      ? const Padding(
+                    padding: EdgeInsets.all(7),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: green,
+                    ),
+                  )
+                      : null,
+                ),
+              ),
             ],
           ),
         ),
@@ -726,7 +946,7 @@ class _RingPercent extends StatelessWidget {
           ),
           Text(
             text,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900),
           ),
         ],
       ),

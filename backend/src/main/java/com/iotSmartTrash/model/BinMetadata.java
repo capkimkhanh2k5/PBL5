@@ -25,6 +25,9 @@ public class BinMetadata {
     private Double longitude;
 
     private Timestamp installedAt;
+    private Boolean classificationEnabled;
+
+    private Timestamp classificationUpdatedAt;
 
     @PropertyName("location_description")
     public String getLocationDescription() {
@@ -44,5 +47,25 @@ public class BinMetadata {
     @PropertyName("installed_at")
     public void setInstalledAt(Timestamp installedAt) {
         this.installedAt = installedAt;
+    }
+
+    @PropertyName("classification_enabled")
+    public Boolean getClassificationEnabled() {
+        return classificationEnabled;
+    }
+
+    @PropertyName("classification_enabled")
+    public void setClassificationEnabled(Boolean classificationEnabled) {
+        this.classificationEnabled = classificationEnabled;
+    }
+
+    @PropertyName("classification_updated_at")
+    public Timestamp getClassificationUpdatedAt() {
+        return classificationUpdatedAt;
+    }
+
+    @PropertyName("classification_updated_at")
+    public void setClassificationUpdatedAt(Timestamp classificationUpdatedAt) {
+        this.classificationUpdatedAt = classificationUpdatedAt;
     }
 }

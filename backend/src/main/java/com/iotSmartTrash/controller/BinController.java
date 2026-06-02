@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.stream.Collectors;
+import com.iotSmartTrash.dto.ClassificationCommandRequest;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/bins")
@@ -52,6 +54,17 @@ public class BinController {
         BinMetadata bin = binDto.toModel();
         String updateTime = binService.updateBin(id, bin);
         return ResponseEntity.ok("Successfully updated bin at " + updateTime);
+    }
+
+    @PatchMapping("/{id}/classification-command")
+    public ResponseEntity<Map<String, Object>> sendClassificationCommand(
+            @PathVariable String id,
+            @Valid @RequestBody ClassificationCommandRequest request) {
+
+        Map<String, Object> response =
+                binService.sendClassificationCommand(id, request.getValue());
+
+        return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{id}")

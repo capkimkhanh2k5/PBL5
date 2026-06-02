@@ -58,8 +58,10 @@ public class AlertService {
 
             String updateTime = docRef.set(payload).get().getUpdateTime().toString();
 
-            // Send push after successful persistence so Firestore remains source of truth.
-            System.out.println("🔴 OFFLINE: Bin " + alert.getBinId());
+// Send push after successful persistence so Firestore remains source of truth.
+            fcmNotificationService.sendAlertCreated(alert);
+
+            System.out.println("🔴 ALERT CREATED: Bin " + alert.getBinId());
             return updateTime;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
