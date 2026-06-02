@@ -44,13 +44,21 @@ ARDUINO_AFTER_ACK_DELAY_SEC     = 0.35
 ARDUINO_BEFORE_SENSOR_DELAY_SEC = 0.50
 ARDUINO_SENSOR_RETRY_DELAY_SEC  = 0.20
 
+# Chống nhiễu khi đo mức đầy: về nguyên tắc % đầy không nên giảm sau mỗi lần bỏ rác.
+# Nếu lần đo mới thấp hơn lần đã chấp nhận trước đó quá ngưỡng này, đọc xác nhận
+# thêm nhưng giới hạn số lần để không làm pipeline bị kẹt vì cảm biến chập chờn.
+FILL_DECREASE_TOLERANCE_PCT = 2.0
+FILL_DECREASE_CONFIRM_READS = 2
+FILL_DECREASE_CONFIRM_REQUIRED = 2
+FILL_DECREASE_CONFIRM_DELAY_SEC = 0.20
+
 # Khoảng cách từ cảm biến siêu âm tới đáy/ngưỡng rỗng của từng ngăn.
 # Khi chưa có rác, cảm biến đọc khoảng 41cm.
 BIN_EMPTY_DISTANCE_CM = {
-    "ORGANIC":    41.0,
+    "ORGANIC":    40.0,
     "RECYCLABLE": 41.0,
-    "HAZARDOUS":  41.0,
-    "OTHER":      41.0,
+    "HAZARDOUS":  40.5,
+    "OTHER":      40.0,
 }
 
 # Chiều cao vùng chứa rác thực tế. Khi rác cao 27cm thì xem là đầy 100%.
@@ -79,6 +87,8 @@ BIN_TO_SENSOR_KEY = {
 
 _simulated_fill_lock = threading.Lock()
 _simulated_distance_cm = dict(BIN_EMPTY_DISTANCE_CM)
+_accepted_fill_lock = threading.Lock()
+_accepted_fill_levels = None
 
 
 def _distance_to_fill_pct(bin_name: str, distance_cm: float) -> float:
@@ -105,6 +115,92 @@ def _build_fill_result(distance_by_bin: dict) -> dict:
             "distance_cm": round(dist, 1),
             "fill_pct":    fill_pct,
         }
+    return result
+
+
+def _copy_fill_levels(fill_levels: Optional[dict]) -> Optional[dict]:
+    if fill_levels is None:
+        return None
+    return {
+        bin_name: dict(values)
+        for bin_name, values in fill_levels.items()
+    }
+
+
+def _get_fill_pct(fill_levels: dict, bin_name: str) -> Optional[float]:
+    values = fill_levels.get(bin_name)
+    if not values:
+        return None
+    pct = values.get("fill_pct")
+    if pct is None:
+        return None
+    return float(pct)
+
+
+def _merge_confirmed_fill_result(candidate: dict, retries: list[dict]) -> dict:
+    global _accepted_fill_levels
+
+    with _accepted_fill_lock:
+        previous = _copy_fill_levels(_accepted_fill_levels)
+
+    if previous is None:
+        with _accepted_fill_lock:
+            _accepted_fill_levels = _copy_fill_levels(candidate)
+        return candidate
+
+    final_result = _copy_fill_levels(candidate)
+
+    for bin_name in BIN_TO_SENSOR_KEY.keys():
+        prev_pct = _get_fill_pct(previous, bin_name)
+        new_pct = _get_fill_pct(candidate, bin_name)
+        if prev_pct is None or new_pct is None:
+            continue
+
+        drop_pct = prev_pct - new_pct
+        if drop_pct <= FILL_DECREASE_TOLERANCE_PCT:
+            continue
+
+        confirm_values = [new_pct]
+        retry_entries = [candidate.get(bin_name)]
+        for retry in retries:
+            retry_pct = _get_fill_pct(retry, bin_name)
+            if retry_pct is None:
+                continue
+            if retry_pct <= prev_pct - FILL_DECREASE_TOLERANCE_PCT:
+                confirm_values.append(retry_pct)
+                retry_entries.append(retry.get(bin_name))
+
+        if len(confirm_values) < FILL_DECREASE_CONFIRM_REQUIRED:
+            final_result[bin_name] = dict(previous[bin_name])
+            print(
+                f"[ARDUINO] {bin_name}: bỏ qua mức đầy giảm nhiễu "
+                f"{prev_pct:.1f}% → {new_pct:.1f}% "
+                f"(confirm {len(confirm_values)}/{FILL_DECREASE_CONFIRM_REQUIRED})"
+            )
+            continue
+
+        chosen_idx = len(confirm_values) // 2
+        sorted_pairs = sorted(
+            zip(confirm_values, retry_entries),
+            key=lambda item: item[0],
+        )
+        final_result[bin_name] = dict(sorted_pairs[chosen_idx][1])
+        print(
+            f"[ARDUINO] {bin_name}: xác nhận mức đầy giảm "
+            f"{prev_pct:.1f}% → {final_result[bin_name]['fill_pct']:.1f}% "
+            f"({len(confirm_values)} lần đọc)"
+        )
+
+    with _accepted_fill_lock:
+        _accepted_fill_levels = _copy_fill_levels(final_result)
+
+    return final_result
+
+
+def _remember_fill_result(result: dict) -> dict:
+    global _accepted_fill_levels
+    with _accepted_fill_lock:
+        _accepted_fill_levels = _copy_fill_levels(result)
     return result
 
 # ============================================================
@@ -235,6 +331,65 @@ def arduino_send_command(
 # ĐỌC MỨC ĐẦY TỪ CẢM BIẾN SIÊU ÂM
 # ============================================================
 
+def _read_fill_levels_once_locked(
+    arduino_serial,
+    timeout: float,
+) -> Optional[dict]:
+    arduino_serial.reset_input_buffer()
+    time.sleep(ARDUINO_BEFORE_SENSOR_DELAY_SEC)
+    arduino_serial.write(b'F')
+    arduino_serial.flush()
+    time.sleep(ARDUINO_AFTER_WRITE_DELAY_SEC)
+    print("[ARDUINO] Gửi lệnh 'F' — đọc mức đầy cảm biến siêu âm")
+
+    deadline = time.time() + timeout
+    dist_values = None
+    while time.time() < deadline:
+        raw = arduino_serial.readline().decode('utf-8', errors='ignore').strip()
+        if not raw:
+            time.sleep(ARDUINO_SENSOR_RETRY_DELAY_SEC)
+            continue
+        print(f"[ARDUINO] ← {raw}")
+        # Định dạng: DIST:12.3,8.5,25.0,-1  (thứ tự: org, rec, haz, oth)
+        if raw.startswith("DIST:"):
+            try:
+                parts = raw[5:].split(",")  # bỏ "DIST:"
+                if len(parts) == 4:
+                    dist_values = [float(p) for p in parts]
+                    break
+            except ValueError:
+                pass  # format lỗi → đọc tiếp
+        # Bỏ qua các dòng debug khác
+    else:
+        print("[ARDUINO] TIMEOUT đọc mức đầy cảm biến")
+        return None
+
+    # Ghép dist_values theo thứ tự: ORGANIC, RECYCLABLE, HAZARDOUS, OTHER
+    bin_order = list(BIN_TO_SENSOR_KEY.keys())
+    distance_by_bin = {}
+    for i, bin_name in enumerate(bin_order):
+        distance_by_bin[bin_name] = dist_values[i]
+
+    return _build_fill_result(distance_by_bin)
+
+
+def _needs_decrease_confirmation(candidate: dict) -> bool:
+    with _accepted_fill_lock:
+        previous = _copy_fill_levels(_accepted_fill_levels)
+
+    if previous is None:
+        return False
+
+    for bin_name in BIN_TO_SENSOR_KEY.keys():
+        prev_pct = _get_fill_pct(previous, bin_name)
+        new_pct = _get_fill_pct(candidate, bin_name)
+        if prev_pct is None or new_pct is None:
+            continue
+        if prev_pct - new_pct > FILL_DECREASE_TOLERANCE_PCT:
+            return True
+    return False
+
+
 def read_fill_levels(
     arduino_serial,
     timeout: float = 3.0,
@@ -274,42 +429,24 @@ def read_fill_levels(
 
     try:
         with _arduino_lock:
-            arduino_serial.reset_input_buffer()
-            time.sleep(ARDUINO_BEFORE_SENSOR_DELAY_SEC)
-            arduino_serial.write(b'F')
-            arduino_serial.flush()
-            time.sleep(ARDUINO_AFTER_WRITE_DELAY_SEC)
-            print("[ARDUINO] Gửi lệnh 'F' — đọc mức đầy cảm biến siêu âm")
-
-            deadline = time.time() + timeout
-            dist_values = None
-            while time.time() < deadline:
-                raw = arduino_serial.readline().decode('utf-8', errors='ignore').strip()
-                if not raw:
-                    time.sleep(ARDUINO_SENSOR_RETRY_DELAY_SEC)
-                    continue
-                print(f"[ARDUINO] ← {raw}")
-                # Định dạng: DIST:12.3,8.5,25.0,-1  (thứ tự: org, rec, haz, oth)
-                if raw.startswith("DIST:"):
-                    try:
-                        parts = raw[5:].split(",")  # bỏ "DIST:"
-                        if len(parts) == 4:
-                            dist_values = [float(p) for p in parts]
-                            break
-                    except ValueError:
-                        pass  # format lỗi → đọc tiếp
-                # Bỏ qua các dòng debug khác
-            else:
-                print("[ARDUINO] TIMEOUT đọc mức đầy cảm biến")
+            result = _read_fill_levels_once_locked(arduino_serial, timeout)
+            if result is None:
                 return None
 
-        # Ghép dist_values theo thứ tự: ORGANIC, RECYCLABLE, HAZARDOUS, OTHER
-        bin_order = list(BIN_TO_SENSOR_KEY.keys())
-        distance_by_bin = {}
-        for i, bin_name in enumerate(bin_order):
-            distance_by_bin[bin_name] = dist_values[i]
+            retries = []
+            if _needs_decrease_confirmation(result):
+                print(
+                    "[ARDUINO] Phát hiện mức đầy giảm — đọc xác nhận "
+                    f"tối đa {FILL_DECREASE_CONFIRM_READS} lần."
+                )
+                for _ in range(FILL_DECREASE_CONFIRM_READS):
+                    time.sleep(FILL_DECREASE_CONFIRM_DELAY_SEC)
+                    retry_result = _read_fill_levels_once_locked(arduino_serial, timeout)
+                    if retry_result is not None:
+                        retries.append(retry_result)
 
-        result = _build_fill_result(distance_by_bin)
+        result = _merge_confirmed_fill_result(result, retries)
+
         print(f"[ARDUINO] Mức đầy: {result}")
         return result
 
@@ -347,5 +484,6 @@ def read_fill_levels_simulated(added_bin: Optional[str] = None) -> dict:
 
         result = _build_fill_result(_simulated_distance_cm)
 
+    _remember_fill_result(result)
     print(f"[ARDUINO] (simulated) Mức đầy: {result}")
     return result
