@@ -14,9 +14,9 @@
   "agc_gamma_max": 3.0,
   "phase": "phase6_v3_realworld_kd",
   "selection_metric": "real",
-  "score": 0.9176470588235294,
-  "val_acc": 0.9663423612937155,
-  "real_val_acc": 0.9176470588235294,
+  "score": 0.9257142857142857,
+  "val_acc": 0.955035498290823,
+  "real_val_acc": 0.9257142857142857,
   "kd_temperature": 4.0,
   "kd_weight": 0.3,
   "clip_grad": 1.0
