@@ -75,6 +75,17 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+def env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value.strip())
+    except ValueError:
+        print(f"[WARN] {name}={value!r} không hợp lệ — dùng {default}")
+        return default
+
+
 # Bật khi debug trên màn hình; tắt khi deploy headless trên Pi để giảm tải.
 DISPLAY_ENABLED = env_bool("DISPLAY_ENABLED", True)
 
@@ -110,6 +121,16 @@ COOLDOWN_SEC          = 1.0
 DETECT_LOST_GRACE_SEC = 1.25
 DETECT_MIN_HOLD_SEC   = 3.0
 MAX_DISPENSE_TIMEOUT_SEC = 25.0
+BIN_FULL_CLEAR_SEC    = 1.0
+
+# --- Fill guard ---
+BIN_FULL_THRESH_PCT = 90.0
+BIN_FULL_READ_TIMEOUT_SEC = 3.0
+BIN_FULL_BLINK_SEC = 0.6
+
+# --- Cooldown recovery ---
+COOLDOWN_STUCK_BLEND_AFTER_SEC = 2.0
+COOLDOWN_MAX_SEC = 10.0
 
 # --- ROI ---
 ROI_X1_RATIO = 0.18
@@ -141,16 +162,24 @@ FROZEN_PIXEL_THRESH      = 900
 EMA_ALPHA           = 0.35
 BG_WARMUP_ALPHA     = 0.25
 BG_IDLE_ALPHA       = 0.03
+BG_OFF_ALPHA        = 0.02
 BG_COOLDOWN_ALPHA   = 0.08
+BG_COOLDOWN_STUCK_ALPHA = 0.008
 
 # --- MOG2 learning rate ---
 MOG2_LR_WARMUP   = 0.05
+MOG2_LR_OFF      = 0.01
 MOG2_LR_WAITING  = 0.003
 MOG2_LR_COOLDOWN = 0.01
 
 # --- Idle periodic update ---
 # Nếu không có rác trong khoảng thời gian này (giây), tự động update Firebase.
 IDLE_UPDATE_INTERVAL_SEC = 300.0   # 5 phút
+OFF_SENSOR_POLL_INTERVAL_SEC = env_float("OFF_SENSOR_POLL_INTERVAL_SEC", IDLE_UPDATE_INTERVAL_SEC)
+
+# --- Remote command polling ---
+# Đọc bin_commands/{BIN_ID} theo chu kỳ, không đọc mỗi frame để tránh tốn quota.
+POLLING_INTERVAL_SEC = env_float("POLLING_INTERVAL_SEC", 3.0)
 
 # Chờ thêm sau khi Arduino báo hoàn tất servo trước khi đọc siêu âm/upload.
 # Khoảng này giúp rác rơi ổn định, servo dừng hẳn và cảm biến bớt nhiễu.
@@ -183,6 +212,10 @@ if _UTILS_DIR not in sys.path:
 from firebaseUtil import (
     init_firebase,
     firebase_log_sensor,
+    firebase_get_classification_command,
+    firebase_get_classification_enabled,
+    firebase_update_classification_enabled,
+    firebase_update_command_status,
     get_firestore_client as firebase_get_firestore_client,
 )
 from cloudinaryUtil import (
@@ -298,6 +331,11 @@ firebase_ok      = init_firebase()
 cloudinary_ok    = init_cloudinary()
 firestore_client = firebase_get_firestore_client()
 arduino_serial   = init_arduino() if FULL_PIPELINE else None
+classification_enabled_initial = firebase_get_classification_enabled(
+    firebase_ok=firebase_ok,
+    bin_id=BIN_ID,
+    default=True,
+)
 
 
 # ============================================================
@@ -456,6 +494,20 @@ def get_bin(class_name):
         if class_name in group:
             return bin_name
     return "OTHER"
+
+
+def get_fill_pct(fill_levels, bin_name):
+    if not fill_levels or bin_name not in fill_levels:
+        return None
+    pct = fill_levels[bin_name].get("fill_pct")
+    if pct is None:
+        return None
+    return float(pct)
+
+
+def bin_is_full(fill_levels, bin_name):
+    pct = get_fill_pct(fill_levels, bin_name)
+    return pct is not None and pct >= BIN_FULL_THRESH_PCT
 
 
 # ============================================================
@@ -739,8 +791,16 @@ STATE_WARMUP     = "WARMUP"
 STATE_WAITING    = "WAITING"
 STATE_DETECTING  = "DETECTING"
 STATE_LOCKED     = "LOCKED"
+STATE_BIN_FULL   = "BIN_FULL"
 STATE_DISPENSING = "DISPENSING"
 STATE_COOLDOWN   = "COOLDOWN"
+
+OFF_APPLY_STATES = {
+    STATE_WARMUP,
+    STATE_WAITING,
+    STATE_BIN_FULL,
+    STATE_COOLDOWN,
+}
 
 
 # ============================================================
@@ -770,6 +830,11 @@ warmup_start  = time.time()
 object_count       = 0
 empty_count        = 0
 cooldown_empty_since = None
+cooldown_start_time = None
+bin_full_empty_since = None
+bin_full_blink_last = 0.0
+bin_full_blink_on = True
+full_bin_fill_pct = None
 lock_frame_count   = 0
 stable_frame_count = 0
 warmup_stable_count = 0
@@ -786,7 +851,16 @@ dispense_lock = threading.Lock()
 dispense_cycle_id = 0
 dispense_start_time = None
 idle_update_event = threading.Event()
+classification_command_event = threading.Event()
 timer_lock = threading.Lock()
+classification_lock = threading.Lock()
+classification_enabled = bool(classification_enabled_initial)
+last_classification_enabled = bool(classification_enabled_initial)
+pending_classification_off = False
+pending_classification_off_command_id = None
+last_classification_command_id = None
+last_command_poll_time = 0.0
+last_off_sensor_poll_time = 0.0
 
 # Đường dẫn ảnh snapshot hiện tại (chụp lúc LOCKED, xoá sau upload)
 current_snapshot_path = None
@@ -854,12 +928,272 @@ def start_idle_update_thread():
     return True
 
 
+def get_classification_enabled():
+    with classification_lock:
+        return classification_enabled
+
+
+def set_classification_enabled(enabled: bool):
+    global classification_enabled
+    with classification_lock:
+        changed = classification_enabled != bool(enabled)
+        classification_enabled = bool(enabled)
+        return changed
+
+
+def start_classification_command_thread():
+    if not firebase_ok or classification_command_event.is_set():
+        return False
+
+    classification_command_event.set()
+
+    def _poll_command():
+        global last_classification_command_id, pending_classification_off
+        global pending_classification_off_command_id
+        try:
+            cmd = firebase_get_classification_command(
+                firebase_ok=firebase_ok,
+                bin_id=BIN_ID,
+            )
+            if not cmd:
+                return
+
+            command_id = str(cmd.get("command_id") or "").strip()
+            command_type = str(cmd.get("type") or "").strip().upper()
+            value = str(cmd.get("value") or "").strip().upper()
+            status = str(cmd.get("status") or "").strip().upper()
+
+            if status != "PENDING" or not command_id:
+                return
+            if command_id == last_classification_command_id:
+                return
+
+            try:
+                if command_type != "CLASSIFICATION":
+                    raise ValueError(f"Unsupported command type: {command_type!r}")
+                if value not in ("ON", "OFF"):
+                    raise ValueError(f"Unsupported classification value: {value!r}")
+
+                enabled = (value == "ON")
+                command_done = True
+                metadata_ok = True
+                if enabled:
+                    pending_classification_off = False
+                    pending_classification_off_command_id = None
+                    changed = set_classification_enabled(True)
+                    metadata_ok = firebase_update_classification_enabled(
+                        firebase_ok=firebase_ok,
+                        bin_id=BIN_ID,
+                        enabled=True,
+                    )
+                elif state in OFF_APPLY_STATES:
+                    pending_classification_off = False
+                    pending_classification_off_command_id = None
+                    changed = set_classification_enabled(False)
+                    metadata_ok = firebase_update_classification_enabled(
+                        firebase_ok=firebase_ok,
+                        bin_id=BIN_ID,
+                        enabled=False,
+                    )
+                else:
+                    pending_classification_off = True
+                    pending_classification_off_command_id = command_id
+                    command_done = False
+                    changed = False
+                    print(f"[COMMAND] CLASSIFICATION OFF pending; current state={state}")
+
+                if command_done:
+                    if metadata_ok:
+                        command_status_ok = firebase_update_command_status(
+                            firebase_ok=firebase_ok,
+                            bin_id=BIN_ID,
+                            command_id=command_id,
+                            status="DONE",
+                        )
+                    else:
+                        command_status_ok = firebase_update_command_status(
+                            firebase_ok=firebase_ok,
+                            bin_id=BIN_ID,
+                            command_id=command_id,
+                            status="FAILED",
+                            error_message="Failed to update bins_metadata.classification_enabled",
+                        )
+                else:
+                    command_status_ok = True
+
+                if command_status_ok:
+                    last_classification_command_id = command_id
+                lcd_show(
+                    "Classify ON" if enabled else ("OFF pending" if pending_classification_off else "Classify OFF"),
+                    "Ready" if enabled else ("Wait cycle" if pending_classification_off else "Keep area empty"),
+                    force=changed,
+                )
+                print(
+                    f"[COMMAND] CLASSIFICATION {value} → "
+                    f"classification_enabled={get_classification_enabled()} "
+                    f"pending_off={pending_classification_off}"
+                )
+                if command_done and not metadata_ok:
+                    print("[COMMAND WARN] Metadata update failed; command marked FAILED.")
+            except Exception as e:
+                firebase_update_command_status(
+                    firebase_ok=firebase_ok,
+                    bin_id=BIN_ID,
+                    command_id=command_id,
+                    status="FAILED",
+                    error_message=str(e),
+                )
+                last_classification_command_id = command_id
+                print(f"[COMMAND ERROR] {e}")
+        finally:
+            classification_command_event.clear()
+
+    threading.Thread(target=_poll_command, daemon=True).start()
+    return True
+
+
+def cancel_pending_classification(reason: str):
+    global state, empty_count, object_count, lock_frame_count, locked_class, locked_bin
+    global locked_conf, detect_start_time, last_object_seen_time, last_obj_bbox
+    global stable_frame_count, vote_history, last_infer, current_snapshot_path
+    global _infer_request, _infer_result
+
+    state                 = STATE_WAITING
+    locked_class          = None
+    locked_bin            = None
+    locked_conf           = 0.0
+    lock_frame_count      = 0
+    empty_count           = 0
+    object_count          = 0
+    last_infer            = None
+    detect_start_time     = None
+    last_object_seen_time = None
+    last_obj_bbox         = None
+    stable_frame_count    = 0
+    smoothed_probs[:]     = 0.0
+    vote_history          = deque(maxlen=VOTE_WINDOW)
+    current_snapshot_path = None
+    with _infer_lock:
+        _infer_request = None
+        _infer_result = None
+    lcd_show("Classify OFF", "Keep area empty", force=True)
+    print(f"[STATE] Classification canceled ({reason}) → WAITING")
+
+
+def enter_classification_off_mode(reason: str):
+    global state, cooldown_empty_since, cooldown_start_time, bin_full_empty_since
+    global full_bin_fill_pct, prev_gray
+
+    if state == STATE_BIN_FULL:
+        cancel_pending_classification(reason)
+    elif state in (STATE_WARMUP, STATE_WAITING, STATE_COOLDOWN):
+        state = STATE_WAITING
+
+    cooldown_empty_since = None
+    cooldown_start_time = None
+    bin_full_empty_since = None
+    full_bin_fill_pct = None
+    prev_gray = None
+    lcd_show("Classify OFF", "Keep area empty", force=True)
+    print(f"[STATE] Classification OFF ({reason}) — keep identify area empty while background learns.")
+
+
+def apply_pending_classification_off_if_safe():
+    global pending_classification_off, pending_classification_off_command_id
+    global last_classification_command_id
+
+    if not pending_classification_off or state not in OFF_APPLY_STATES:
+        return False
+
+    command_id = pending_classification_off_command_id
+    pending_classification_off = False
+    pending_classification_off_command_id = None
+    changed = set_classification_enabled(False)
+
+    def _update_metadata():
+        global last_classification_command_id
+        metadata_ok = firebase_update_classification_enabled(
+            firebase_ok=firebase_ok,
+            bin_id=BIN_ID,
+            enabled=False,
+        )
+        if command_id:
+            status = "DONE" if metadata_ok else "FAILED"
+            error_message = None if metadata_ok else "Failed to update bins_metadata.classification_enabled"
+            command_status_ok = firebase_update_command_status(
+                firebase_ok=firebase_ok,
+                bin_id=BIN_ID,
+                command_id=command_id,
+                status=status,
+                error_message=error_message,
+            )
+            if not command_status_ok:
+                last_classification_command_id = None
+            elif not metadata_ok:
+                print("[COMMAND WARN] Pending OFF metadata update failed; command marked FAILED.")
+
+    threading.Thread(target=_update_metadata, daemon=True).start()
+    lcd_show("Classify OFF", "Keep area empty", force=changed)
+    print(f"[COMMAND] Pending CLASSIFICATION OFF applied at state={state}")
+    return True
+
+
+def restart_classification_warmup(reason: str):
+    global state, warmup_start, warmup_stable_count, object_count, empty_count
+    global lock_frame_count, stable_frame_count, vote_history, last_infer
+    global locked_class, locked_bin, locked_conf, detect_start_time
+    global last_object_seen_time, last_obj_bbox, current_snapshot_path
+    global cooldown_empty_since, cooldown_start_time, bin_full_empty_since
+    global full_bin_fill_pct, prev_gray, ema_bg_gray, backSub
+    global _infer_request, _infer_result
+
+    has_learned_background = ema_bg_gray is not None
+    state                 = STATE_WAITING if has_learned_background else STATE_WARMUP
+    warmup_start          = time.time()
+    warmup_stable_count   = 0
+    object_count          = 0
+    empty_count           = 0
+    lock_frame_count      = 0
+    stable_frame_count    = 0
+    locked_class          = None
+    locked_bin            = None
+    locked_conf           = 0.0
+    detect_start_time     = None
+    last_object_seen_time = None
+    last_obj_bbox         = None
+    current_snapshot_path = None
+    cooldown_empty_since  = None
+    cooldown_start_time   = None
+    bin_full_empty_since  = None
+    full_bin_fill_pct     = None
+    if not has_learned_background:
+        prev_gray         = None
+        ema_bg_gray       = None
+    smoothed_probs[:]     = 0.0
+    vote_history          = deque(maxlen=VOTE_WINDOW)
+    last_infer            = None
+    if not has_learned_background:
+        backSub = cv2.createBackgroundSubtractorMOG2(
+            history=500, varThreshold=30, detectShadows=True
+        )
+    with _infer_lock:
+        _infer_request = None
+        _infer_result = None
+    if has_learned_background:
+        lcd_show("Ready", "Waiting trash", force=True)
+        print(f"[STATE] Classification ON ({reason}) — use OFF-learned background.")
+    else:
+        lcd_show("Learning BG", "Classify ON", force=True)
+        print(f"[STATE] Classification ON ({reason}) — restart WARMUP.")
+
+
 print(f"[INIT] FULL_PIPELINE  : {FULL_PIPELINE}")
 print(f"[INIT] WARMUP {WARMUP_SEC:.0f}-{WARMUP_MAX_SEC:.0f}s | TTA={N_TTA} | img_size={img_size}")
 print(f"[INIT] BIN_ID={BIN_ID} | Firebase={'OK' if firebase_ok else 'OFFLINE'}")
 print(f"[INIT] Cloudinary={'OK' if cloudinary_ok else 'OFFLINE'}")
 print(f"[INIT] Display={'ON' if DISPLAY_ENABLED else 'OFF'}")
 print(f"[INIT] LCD={'OK' if lcd.enabled else 'OFF'}")
+print(f"[INIT] Classification={'ON' if get_classification_enabled() else 'OFF'}")
 if FULL_PIPELINE:
     print(f"[INIT] Arduino={'OK' if arduino_serial else 'OFFLINE'} (servo + siêu âm)")
 else:
@@ -885,6 +1219,62 @@ try:
         curr_gray  = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         annotated  = frame_bgr.copy() if DISPLAY_ENABLED else None
         h, w       = frame_bgr.shape[:2]
+        now_mono_loop = time.monotonic()
+
+        if (firebase_ok
+                and now_mono_loop - last_command_poll_time >= POLLING_INTERVAL_SEC):
+            last_command_poll_time = now_mono_loop
+            start_classification_command_thread()
+
+        classification_enabled_now = get_classification_enabled()
+        if apply_pending_classification_off_if_safe():
+            classification_enabled_now = get_classification_enabled()
+
+        if classification_enabled_now != last_classification_enabled:
+            if classification_enabled_now:
+                restart_classification_warmup("remote ON")
+            else:
+                enter_classification_off_mode("remote OFF")
+            last_classification_enabled = classification_enabled_now
+
+        if not classification_enabled_now and state != STATE_DISPENSING:
+            if (now_mono_loop - last_off_sensor_poll_time >= OFF_SENSOR_POLL_INTERVAL_SEC
+                    and not idle_update_event.is_set()):
+                last_off_sensor_poll_time = now_mono_loop
+                mark_idle_update_time(now_mono_loop)
+                print("[OFF] Classification disabled — gửi sensor log định kỳ...")
+                start_idle_update_thread()
+
+            y1_roi = int(h * ROI_Y1_RATIO); y2_roi = int(h * ROI_Y2_RATIO)
+            x1_roi = int(w * ROI_X1_RATIO); x2_roi = int(w * ROI_X2_RATIO)
+            backSub.apply(frame_rgb, learningRate=MOG2_LR_OFF)
+            off_diff = None
+            if prev_gray is not None:
+                off_diff = float(np.mean(cv2.absdiff(
+                    prev_gray[y1_roi:y2_roi, x1_roi:x2_roi],
+                    curr_gray[y1_roi:y2_roi, x1_roi:x2_roi],
+                )))
+            if off_diff is None or off_diff < WARMUP_DIFF_THRESH:
+                update_background_snapshot(curr_gray, BG_OFF_ALPHA)
+            prev_gray = curr_gray.copy()
+
+            if DISPLAY_ENABLED:
+                cv2.putText(frame_bgr, "CLASSIFICATION OFF - SENSOR ONLY",
+                            (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.65,
+                            (160, 160, 160), 2, cv2.LINE_AA)
+                cv2.putText(frame_bgr,
+                            f"sensor poll: {OFF_SENSOR_POLL_INTERVAL_SEC:.0f}s",
+                            (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.50,
+                            (160, 160, 160), 1, cv2.LINE_AA)
+                cv2.putText(frame_bgr, "Keep identify area empty while OFF",
+                            (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.50,
+                            (0, 200, 255), 1, cv2.LINE_AA)
+                cv2.imshow("SmartTrashBin v5.0", frame_bgr)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+            lcd_show("Classify OFF", "Keep area empty")
+            time.sleep(0.03)
+            continue
 
         # ROI tuyệt đối
         y1_roi = int(h * ROI_Y1_RATIO); y2_roi = int(h * ROI_Y2_RATIO)
@@ -916,8 +1306,18 @@ try:
             update_background_snapshot(curr_gray, BG_WARMUP_ALPHA)
         elif state == STATE_WAITING and mog_diff_weak and object_count == 0:
             update_background_snapshot(curr_gray, BG_IDLE_ALPHA)
-        elif state == STATE_COOLDOWN and mog_diff_weak and not is_occupied:
-            update_background_snapshot(curr_gray, BG_COOLDOWN_ALPHA)
+        elif state == STATE_COOLDOWN:
+            cooldown_age = (
+                time.monotonic() - cooldown_start_time
+                if cooldown_start_time is not None
+                else 0.0
+            )
+            if mog_diff_weak and not is_occupied:
+                update_background_snapshot(curr_gray, BG_COOLDOWN_ALPHA)
+            elif cooldown_age >= COOLDOWN_STUCK_BLEND_AFTER_SEC:
+                update_background_snapshot(curr_gray, BG_COOLDOWN_STUCK_ALPHA)
+                if cooldown_age >= COOLDOWN_MAX_SEC:
+                    is_occupied = False
 
         if DISPLAY_ENABLED:
             sq_crop = get_square_crop(obj_bbox, h, w)
@@ -985,10 +1385,18 @@ try:
         # ============================================================
         elif state == STATE_WAITING:
             if DISPLAY_ENABLED:
-                cv2.putText(annotated, "WAITING for object...",
+                waiting_text = (
+                    "CLASSIFICATION OFF - sensor logs only"
+                    if not classification_enabled_now
+                    else "WAITING for object..."
+                )
+                cv2.putText(annotated, waiting_text,
                             (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.65,
                             (160, 160, 160), 2, cv2.LINE_AA)
-            if is_occupied:
+            if not classification_enabled_now:
+                object_count = 0
+                lcd_show("Classify OFF", "Keep area empty")
+            elif is_occupied:
                 object_count += 1
                 if object_count >= OBJECT_CONFIRM_FRAMES:
                     state             = STATE_DETECTING
@@ -996,6 +1404,10 @@ try:
                     vote_history      = deque(maxlen=VOTE_WINDOW)
                     smoothed_probs[:] = 0.0
                     last_infer        = None
+                    with _infer_lock:
+                        _infer_result = None
+                        if not _infer_busy:
+                            _infer_request = None
                     detect_start_time = time.time()
                     last_object_seen_time = detect_start_time
                     last_obj_bbox = obj_bbox
@@ -1161,70 +1573,167 @@ try:
                 draw_action_status(annotated, "LOCKED — chuẩn bị đổ rác...", (0, 255, 200))
 
             if lock_frame_count >= MIN_LOCK_HOLD_FRAMES:
-                # Chụp ảnh tại thời điểm lock (luôn thực hiện)
-                current_snapshot_path = capture_snapshot(cap, BIN_ID, locked_bin)
+                bin_full_blocked = False
 
-                state = STATE_DISPENSING
-                with dispense_lock:
-                    dispense_cycle_id += 1
-                    _cycle_id = dispense_cycle_id
-                    dispense_event.clear()
-                    dispense_start_time = time.monotonic()
-                lcd_show("Dropping trash", LCD_BIN_LABELS.get(locked_bin, locked_bin), force=True)
-                print(f"[STATE] LOCKED → DISPENSING: {locked_bin}"
-                      f"  (Arduino={'ON' if FULL_PIPELINE else 'MOCK'})")
+                if FULL_PIPELINE and USE_ULTRASONIC:
+                    pre_fill_levels = read_fill_levels(
+                        arduino_serial,
+                        timeout=BIN_FULL_READ_TIMEOUT_SEC,
+                    )
+                    if pre_fill_levels is None:
+                        print("[BIN FULL] Không đọc được cảm biến — bỏ qua full guard lần này.")
+                else:
+                    pre_fill_levels = read_fill_levels_simulated()
 
-                # Capture các giá trị cần dùng trong closure
-                _snap = current_snapshot_path
-                _cls  = locked_class
-                _bin  = locked_bin
-                _conf = locked_conf
-
-                def _on_arduino_done():
-                    print("[DISPENSE] Hoàn tất. Cập nhật Firebase + Cloudinary...")
-                    lcd_show("Drop complete", "Updating data", force=True)
-                    time.sleep(POST_DISPENSE_SETTLE_SEC)
-
-                    # fill_levels: đọc cảm biến siêu âm thực khi FULL_PIPELINE=True,
-                    #              dùng mock data khi FULL_PIPELINE=False
-                    if FULL_PIPELINE and USE_ULTRASONIC:
-                        fill_levels = read_fill_levels(arduino_serial)
-                        if fill_levels is None:
-                            print("[DISPENSE] Cảm biến siêu âm chưa phản hồi — dùng simulated.")
-                            fill_levels = read_fill_levels_simulated(_bin)
-                    else:
-                        fill_levels = read_fill_levels_simulated(_bin)
-
-                    # Ghi log cảm biến vào bin_raw_sensor_logs
+                if pre_fill_levels is not None:
                     firebase_log_sensor(
                         firebase_ok  = firebase_ok,
                         bin_id       = BIN_ID,
-                        fill_levels  = fill_levels,
+                        fill_levels  = pre_fill_levels,
                     )
 
-                    # Upload Cloudinary + ghi classification_logs Firestore
-                    upload_and_log(
-                        cloudinary_ok    = cloudinary_ok,
-                        firebase_ok      = firebase_ok,
-                        firestore_client = firestore_client,
-                        bin_id           = BIN_ID,
-                        bin_type         = _bin,
-                        locked_class     = _cls,
-                        confidence_score = _conf,
-                        local_image_path = _snap,
+                if pre_fill_levels is not None and bin_is_full(pre_fill_levels, locked_bin):
+                    full_bin_fill_pct = get_fill_pct(pre_fill_levels, locked_bin)
+                    state = STATE_BIN_FULL
+                    bin_full_empty_since = None
+                    bin_full_blink_last = 0.0
+                    bin_full_blink_on = True
+                    lock_frame_count = 0
+                    bin_full_blocked = True
+                    lcd_show("BIN FULL", "Remove trash", force=True)
+                    print(
+                        f"[STATE] LOCKED → BIN_FULL: {locked_bin} "
+                        f"fill={full_bin_fill_pct:.1f}%"
                     )
 
-                    # Reset timer idle: tính từ lúc pipeline xử lý xong
-                    mark_activity_timers()
+                if not bin_full_blocked:
+                    # Chụp ảnh tại thời điểm lock (luôn thực hiện)
+                    current_snapshot_path = capture_snapshot(cap, BIN_ID, locked_bin)
+
+                    state = STATE_DISPENSING
                     with dispense_lock:
-                        if _cycle_id == dispense_cycle_id:
-                            dispense_event.set()
-                        else:
-                            print(f"[DISPENSE] Bỏ qua callback cũ cycle={_cycle_id}.")
+                        dispense_cycle_id += 1
+                        _cycle_id = dispense_cycle_id
+                        dispense_event.clear()
+                        dispense_start_time = time.monotonic()
+                    lcd_show("Dropping trash", LCD_BIN_LABELS.get(locked_bin, locked_bin), force=True)
+                    print(f"[STATE] LOCKED → DISPENSING: {locked_bin}"
+                          f"  (Arduino={'ON' if FULL_PIPELINE else 'MOCK'})")
 
-                # arduino_send_command dùng stub 2s-delay khi FULL_PIPELINE=False
-                arduino_send_command(arduino_serial, locked_bin,
-                                     on_done_callback=_on_arduino_done)
+                    # Capture các giá trị cần dùng trong closure
+                    _snap = current_snapshot_path
+                    _cls  = locked_class
+                    _bin  = locked_bin
+                    _conf = locked_conf
+
+                    def _on_arduino_done():
+                        print("[DISPENSE] Hoàn tất. Cập nhật Firebase + Cloudinary...")
+                        lcd_show("Drop complete", "Updating data", force=True)
+                        time.sleep(POST_DISPENSE_SETTLE_SEC)
+
+                        # fill_levels: đọc cảm biến siêu âm thực khi FULL_PIPELINE=True,
+                        #              dùng mock data khi FULL_PIPELINE=False
+                        if FULL_PIPELINE and USE_ULTRASONIC:
+                            fill_levels = read_fill_levels(arduino_serial)
+                            if fill_levels is None:
+                                print("[DISPENSE] Cảm biến siêu âm chưa phản hồi — dùng simulated.")
+                                fill_levels = read_fill_levels_simulated(_bin)
+                        else:
+                            fill_levels = read_fill_levels_simulated(_bin)
+
+                        # Ghi log cảm biến vào bin_raw_sensor_logs
+                        firebase_log_sensor(
+                            firebase_ok  = firebase_ok,
+                            bin_id       = BIN_ID,
+                            fill_levels  = fill_levels,
+                        )
+
+                        def _on_log_done():
+                            mark_activity_timers()
+                            with dispense_lock:
+                                if _cycle_id == dispense_cycle_id:
+                                    dispense_event.set()
+                                else:
+                                    print(f"[DISPENSE] Bỏ qua callback cũ cycle={_cycle_id}.")
+
+                        # Upload Cloudinary + ghi classification_logs Firestore
+                        upload_and_log(
+                            cloudinary_ok    = cloudinary_ok,
+                            firebase_ok      = firebase_ok,
+                            firestore_client = firestore_client,
+                            bin_id           = BIN_ID,
+                            bin_type         = _bin,
+                            locked_class     = _cls,
+                            confidence_score = _conf,
+                            local_image_path = _snap,
+                            on_done_callback = _on_log_done,
+                        )
+
+                    # arduino_send_command dùng stub 2s-delay khi FULL_PIPELINE=False
+                    arduino_send_command(arduino_serial, locked_bin,
+                                         on_done_callback=_on_arduino_done)
+
+        # ============================================================
+        # STATE: BIN_FULL  →  chặn servo, yêu cầu lấy rác khỏi vùng identify
+        # ============================================================
+        elif state == STATE_BIN_FULL:
+            now_mono = time.monotonic()
+            if now_mono - bin_full_blink_last >= BIN_FULL_BLINK_SEC:
+                bin_full_blink_last = now_mono
+                bin_full_blink_on = not bin_full_blink_on
+                if bin_full_blink_on:
+                    lcd_show("BIN FULL", "Remove trash", force=True)
+                else:
+                    lcd_show(" ", " ", force=True)
+
+            if DISPLAY_ENABLED:
+                h2, w2 = annotated.shape[:2]
+                if bin_full_blink_on:
+                    cv2.rectangle(annotated, (0, 0), (w2, 105), (0, 0, 220), -1)
+                    cv2.putText(annotated, f"  {locked_bin} FULL",
+                                (10, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.15,
+                                (255, 255, 255), 3, cv2.LINE_AA)
+                    fill_txt = "--" if full_bin_fill_pct is None else f"{full_bin_fill_pct:.1f}%"
+                    cv2.putText(annotated, f"  fill={fill_txt}  REMOVE TRASH",
+                                (10, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.72,
+                                (255, 255, 255), 2, cv2.LINE_AA)
+                draw_action_status(
+                    annotated,
+                    "BIN FULL - servo blocked, remove item from identify area",
+                    (0, 0, 255),
+                )
+
+            if not is_occupied:
+                if bin_full_empty_since is None:
+                    bin_full_empty_since = now_mono
+            else:
+                bin_full_empty_since = None
+
+            clear_elapsed = (
+                now_mono - bin_full_empty_since
+                if bin_full_empty_since is not None
+                else 0.0
+            )
+            if clear_elapsed >= BIN_FULL_CLEAR_SEC:
+                state                 = STATE_WAITING
+                locked_class          = None
+                locked_bin            = None
+                locked_conf           = 0.0
+                full_bin_fill_pct     = None
+                lock_frame_count      = 0
+                empty_count           = 0
+                object_count          = 0
+                last_infer            = None
+                detect_start_time     = None
+                last_object_seen_time = None
+                last_obj_bbox         = None
+                stable_frame_count    = 0
+                smoothed_probs[:]     = 0.0
+                vote_history          = deque(maxlen=VOTE_WINDOW)
+                bin_full_empty_since  = None
+                current_snapshot_path = None
+                lcd_show("Ready", "Waiting trash", force=True)
+                print("[STATE] BIN_FULL → WAITING (item removed)")
 
         # ============================================================
         # STATE: DISPENSING  →  chờ Arduino ACK xong
@@ -1260,6 +1769,7 @@ try:
                     lcd_show("Dispense timeout", "Cooling down", force=True)
                 state          = STATE_COOLDOWN
                 cooldown_empty_since = None
+                cooldown_start_time = time.monotonic()
                 with dispense_lock:
                     if _dispense_cycle == dispense_cycle_id:
                         dispense_start_time = None
@@ -1285,7 +1795,17 @@ try:
             )
             remaining_cd = max(0.0, COOLDOWN_SEC - cooldown_elapsed)
             if DISPLAY_ENABLED:
-                cv2.putText(annotated, f"COOLDOWN... {remaining_cd:.1f}s, waiting for empty bin",
+                cooldown_age = (
+                    now_mono - cooldown_start_time
+                    if cooldown_start_time is not None
+                    else 0.0
+                )
+                cooldown_msg = (
+                    f"COOLDOWN... {remaining_cd:.1f}s, slow background blend"
+                    if cooldown_age >= COOLDOWN_STUCK_BLEND_AFTER_SEC
+                    else f"COOLDOWN... {remaining_cd:.1f}s, waiting for empty bin"
+                )
+                cv2.putText(annotated, cooldown_msg,
                             (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.65,
                             (0, 165, 255), 2, cv2.LINE_AA)
             if cooldown_elapsed >= COOLDOWN_SEC:
@@ -1307,6 +1827,7 @@ try:
                 with dispense_lock:
                     dispense_start_time = None
                 cooldown_empty_since = None
+                cooldown_start_time = None
                 current_snapshot_path = None
                 lcd_show("Ready", "Waiting trash", force=True)
                 print("[STATE] COOLDOWN → WAITING (cycle reset)")
@@ -1343,6 +1864,7 @@ try:
                 STATE_DETECTING:  (0, 180, 255),
                 STATE_LOCKED:     BIN_COLORS.get(locked_bin, (100, 100, 100))
                                   if locked_bin else (0, 220, 0),
+                STATE_BIN_FULL:   (0, 0, 255),
                 STATE_DISPENSING: (0, 220, 255),
                 STATE_COOLDOWN:   (0, 165, 255),
             }

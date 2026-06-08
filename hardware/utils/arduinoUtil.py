@@ -31,7 +31,7 @@ import serial.tools.list_ports
 # ============================================================
 
 ARDUINO_BAUDRATE   = 9600
-ARDUINO_TIMEOUT    = 8.0           # giây chờ ACK lệnh servo
+ARDUINO_TIMEOUT    = 6.0           # giây chờ ACK lệnh servo
 ARDUINO_ACK_PREFIX = "Hoan thanh"  # prefix phản hồi từ Arduino
 
 # Các khoảng đệm để Serial/servo/cảm biến có thời gian ổn định.
@@ -56,8 +56,8 @@ FILL_DECREASE_CONFIRM_DELAY_SEC = 0.20
 # Khi chưa có rác, cảm biến đọc khoảng 41cm.
 BIN_EMPTY_DISTANCE_CM = {
     "ORGANIC":    40.0,
-    "RECYCLABLE": 41.0,
-    "HAZARDOUS":  40.5,
+    "RECYCLABLE": 40.0,
+    "HAZARDOUS":  40.0,
     "OTHER":      40.0,
 }
 
@@ -71,17 +71,17 @@ BIN_DEPTH_CM = BIN_EMPTY_DISTANCE_CM
 
 # Map ngăn → Arduino command
 BIN_TO_ARDUINO_CMD = {
-    "ORGANIC":    '0',
-    "RECYCLABLE": '1',
-    "HAZARDOUS":  '2',
-    "OTHER":      '3',
+    "ORGANIC":    '2',
+    "RECYCLABLE": '0',
+    "HAZARDOUS":  '3',
+    "OTHER":      '1',
 }
 
 # Map ngăn → key trong JSON trả về của Arduino (khi có cảm biến siêu âm)
 BIN_TO_SENSOR_KEY = {
     "ORGANIC":    "org",
-    "RECYCLABLE": "rec",
     "HAZARDOUS":  "haz",
+    "RECYCLABLE": "rec",
     "OTHER":      "oth",
 }
 
