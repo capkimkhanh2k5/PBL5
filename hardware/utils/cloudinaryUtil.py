@@ -19,7 +19,9 @@ _CURR_DIR = os.path.dirname(os.path.abspath(__file__))
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
 CLOUDINARY_API_KEY    = os.getenv("CLOUDINARY_API_KEY")
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
-BIN_ID = os.getenv("BIN_ID", "bin_001")  # ID thùng rác mặc định nếu không có trong .env
+BIN_ID = os.getenv("BIN_ID", "bin_001").strip() or "bin_001"
+CLOUDINARY_UPLOAD_TIMEOUT_SEC = float(os.getenv("CLOUDINARY_UPLOAD_TIMEOUT_SEC", "8.0"))
+FIRESTORE_LOG_TIMEOUT_SEC = float(os.getenv("FIRESTORE_LOG_TIMEOUT_SEC", "4.0"))
 
 SAVE_ROOT_DIR = "PBL5"
 
@@ -73,6 +75,7 @@ def init_cloudinary() -> bool:
             api_key    = CLOUDINARY_API_KEY,
             api_secret = CLOUDINARY_API_SECRET,
             secure     = True,
+            timeout    = CLOUDINARY_UPLOAD_TIMEOUT_SEC,
         )
         os.makedirs(LOCAL_SNAPSHOT_DIR, exist_ok=True)
         _cloudinary_ok = True
@@ -150,14 +153,15 @@ def upload_and_log(
     def _run():
         image_url = None
         log_id    = f"cls_{uuid.uuid4().hex[:8]}"
+        effective_bin_id = (str(bin_id).strip() if bin_id else "") or BIN_ID
 
         # ── 1. Upload Cloudinary ──────────────────────────────────────
         if cloudinary_ok and local_image_path and os.path.exists(local_image_path):
             try:
                 import cloudinary.uploader
 
-                folder = f"{SAVE_ROOT_DIR}/{BIN_ID}/{BIN_TO_CLOUDINARY_FOLDER.get(bin_type, 'General')}"
-                pub_id = f"{bin_id}_{int(time.time() * 1000)}"
+                folder = f"{SAVE_ROOT_DIR}/{effective_bin_id}/{BIN_TO_CLOUDINARY_FOLDER.get(bin_type, 'General')}"
+                pub_id = f"{effective_bin_id}_{int(time.time() * 1000)}"
 
                 result = cloudinary.uploader.upload(
                     local_image_path,
@@ -165,6 +169,7 @@ def upload_and_log(
                     public_id     = pub_id,
                     overwrite     = True,
                     resource_type = "image",
+                    timeout       = CLOUDINARY_UPLOAD_TIMEOUT_SEC,
                 )
                 image_url = result.get("secure_url")
                 print(f"[CLOUDINARY] Upload thành công: {image_url}")
@@ -175,6 +180,12 @@ def upload_and_log(
 
             except Exception as e:
                 print(f"[CLOUDINARY ERROR] upload: {e}")
+                if local_image_path and os.path.exists(local_image_path):
+                    try:
+                        os.remove(local_image_path)
+                        print(f"[CLOUDINARY] Đã xoá ảnh local sau lỗi upload: {local_image_path}")
+                    except OSError:
+                        pass
         else:
             if local_image_path:
                 print("[CLOUDINARY] Skip upload (cloudinary offline hoặc file không tồn tại).")
@@ -192,14 +203,17 @@ def upload_and_log(
 
                 doc_data = {
                     "log_id":               log_id,
-                    "bin_id":               bin_id,
+                    "bin_id":               effective_bin_id,
                     "classification_result": locked_class,
                     "confidence_score":     round(confidence_score, 4),
                     "classified_at":        fs_module.SERVER_TIMESTAMP,
                     "image_url":            image_url or "",
                 }
 
-                firestore_client.collection("classification_logs").document(log_id).set(doc_data)
+                firestore_client.collection("classification_logs").document(log_id).set(
+                    doc_data,
+                    timeout=FIRESTORE_LOG_TIMEOUT_SEC,
+                )
                 print(f"[FIRESTORE] Ghi classification_logs/{log_id} thành công.")
 
             except Exception as e:
