@@ -1,0 +1,13 @@
+                 precision    recall  f1-score   support
+
+        Battery     0.9831    1.0000    0.9915        58
+     Biological     1.0000    0.8889    0.9412         9
+  General_Waste     1.0000    0.9091    0.9524        22
+          Glass     1.0000    1.0000    1.0000         5
+          Metal     0.7727    0.8947    0.8293        19
+Paper_Cardboard     0.8649    1.0000    0.9275        32
+        Plastic     1.0000    0.8000    0.8889        30
+
+       accuracy                         0.9371       175
+      macro avg     0.9458    0.9275    0.9330       175
+   weighted avg     0.9450    0.9371    0.9373       175

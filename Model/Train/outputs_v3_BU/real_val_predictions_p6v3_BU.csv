@@ -1,0 +1,176 @@
+path,label,prediction,confidence,correct
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/ff51d90b49a42fc0ba560573c5e4340e.jpg,Plastic,Plastic,0.876094,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/wrapper pic.jpg,General_Waste,General_Waste,0.570156,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Biological/Biological_1778330970690.jpg,Biological,Biological,0.747113,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/sg-11134201-82580-mg76qi66qe4sd0.jpg,Battery,Battery,0.832430,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1780144006921.jpg,Metal,Metal,0.808104,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/z7684599543735_32f4072fce6e36ca052aad82b066145b.jpg,Plastic,Plastic,0.962627,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/lazada_pin_aa_1_viên_pin_sạc_1.5v_dolidada_aa_9800ma_aaa_8800mah_3.jpg,Battery,Battery,0.883991,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_aa_0127.png,Battery,Battery,0.846404,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Biological/Biological_1780138702950.jpg,Biological,Paper_Cardboard,0.473141,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/a614d27c-0dbc-4e21-8de4-0b4e2e550330.jpg,General_Waste,General_Waste,0.824060,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_pin_aa_1.5v_pin_alkaline_beston_aa_aaa_1.5v_cho_micro_karaoke_đồ_chơi_điều_khiển_mẫu_mới_bền_bỉ_và_an_toàn_9.jpg,Battery,Battery,0.837009,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/General_Waste_1779523127232.jpg,General_Waste,General_Waste,0.349393,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1780143957579.jpg,Metal,Metal,0.806977,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/China-Metallized-PET-PVC-Twist-Film-for-Candy-Wrapper.jpg_300x300.jpg,General_Waste,General_Waste,0.428818,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_aa_0189.jpg,Battery,Battery,0.689399,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/ade38c31-6bdd-400b-856a-946509155ed6.jpg,General_Waste,General_Waste,0.868850,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/Battery_1775248517925.jpg,Battery,Battery,0.866008,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/z7684599215883_b3518a14ffe096a6870ed7181e9cd812.jpg,Plastic,Plastic,0.908813,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Glass/Glass_1778331524701.jpg,Glass,Glass,0.849872,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Biological/Biological_1775303790941.jpg,Biological,Biological,0.850726,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/hong-kong-asia-12-15-260nw-2416669253.jpg,Metal,Metal,0.790535,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery35.jpg,Battery,Battery,0.809400,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1780140759932.jpg,Plastic,Metal,0.423503,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/coke-can-375ml_5000x.jpg,Metal,Metal,0.903683,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/Battery_1780163545348.jpg,Battery,Battery,0.713529,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/vn-11134207-820l4-mh6280ju9s0ff7.jpg,Battery,Battery,0.922907,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/Battery_1775248461917.jpg,Battery,Battery,0.768822,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Biological/Biological_1779523010524.jpg,Biological,Biological,0.547423,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/Battery_1780163571409.jpg,Battery,Battery,0.806365,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/download (3).jpg,General_Waste,General_Waste,0.699403,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1780162986577.jpg,Plastic,Paper_Cardboard,0.414872,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_aa_0145.jpg,Battery,Battery,0.858415,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/Battery_1780163551805.jpg,Battery,Battery,0.661465,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1780144114027.jpg,Metal,Metal,0.853133,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/6064304b4899ab2b336d206de88650e9.jpg,Plastic,Plastic,0.731989,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Glass/Glass_1780139754950.jpg,Glass,Glass,0.665890,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1780143730576.jpg,Metal,Metal,0.542804,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1775247068568.jpg,Plastic,Plastic,0.916646,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_aaa_battery_pin_con_thỏ_pin_tiểu_aa_pin_đũa_aaa_hàng_vn_peekapaw_toys_10.jpg,Battery,Battery,0.905490,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/image_01632_aug.jpg,Battery,Battery,0.945672,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (45).jpg,Paper_Cardboard,Paper_Cardboard,0.881491,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/sg-11134201-7rbmm-loaxk33ahpw17e.webp,Plastic,Plastic,0.826151,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Biological/Biological_1775248970576.jpg,Biological,Biological,0.902739,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/vn-11134207-820l4-mfmq7qvjnnyk6d.webp,Plastic,Plastic,0.976418,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_pin_aa_1.5v_pin_con_thỏ_an_toàn_-_bên_mạnh_thân_thiện_mt-_1.5v_aa_và_aaa_lắp_vào_đồ_chơi_và_nhiều_đồ_dùng_khác_19.jpg,Battery,Battery,0.900590,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery182.jpg,Battery,Battery,0.964359,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/ho-chi-minh-city-vietnam-600nw-2292591413.jpg,General_Waste,General_Waste,0.868112,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery138.jpg,Battery,Battery,0.915659,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery7.jpg,Battery,Battery,0.923732,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/2eee96e5-774d-4e9e-b4f6-bbbaac2990f2.jpg,General_Waste,General_Waste,0.897803,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1780162061185.jpg,Plastic,Metal,0.531189,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/vn-11134207-81ztc-ml1ruefn7soy36.webp,Battery,Battery,0.873113,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery142.jpg,Battery,Battery,0.822965,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_359.jpg,Battery,Battery,0.946410,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1775247422678.jpg,Paper_Cardboard,Paper_Cardboard,0.771981,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_pin_aa_1.5v_6_viện_24_viên_pin_tiểu_aa_con_ó_1.5_1vôn_pin_thông_dụng_cho_đồ_điện_tử_4.jpg,Battery,Battery,0.903614,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Biological/Biological_1775248931752.jpg,Biological,Biological,0.897528,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/33-333845_crushed-coke-can-hd-png-download.png,Metal,Metal,0.881624,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (41).jpg,Paper_Cardboard,Paper_Cardboard,0.902118,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_aaa_battery_hộp_40_viên_pin_con_thỏ_aa_và_aaa_chính_hãng_an_toàn_bền_mạnh_4.jpg,Battery,Battery,0.853222,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1780143875580.jpg,Metal,Metal,0.736919,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (62).jpg,Paper_Cardboard,Paper_Cardboard,0.825136,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_battery_9v_pin_vuông_9v_goltoe_6f22_dùng_lâu_bền_không_rò_rỉ_phù_hợp_với_remote_và_đồ_chơi_0.jpg,Battery,Battery,0.867902,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1775303567490.jpg,Paper_Cardboard,Paper_Cardboard,0.854559,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/General_Waste_1779520594959.jpg,General_Waste,General_Waste,0.671540,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/vn-11134201-7ras8-mao1j0hesxcn3f.webp,Plastic,Plastic,0.947092,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/bangkok-thailand-march-16th-2021-260nw-1937031025.jpg,Metal,Metal,0.861167,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery224.jpg,Battery,Battery,0.906623,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1778331364356.jpg,Metal,Metal,0.850438,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/pilsen-czech-republic-flattened-coke-can-old-stone-sidewalk-red-gray-coca-cola-most-famous-global-218503635.jpg,Metal,Metal,0.797758,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery802.jpg,Battery,Battery,0.869186,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/sg-11134253-825ao-meutq3meoi69a1.jpg,Plastic,Plastic,0.962031,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (20).jpg,Paper_Cardboard,Paper_Cardboard,0.890360,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Biological/Biological_1775303807860.jpg,Biological,Biological,0.880391,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1780143917105.jpg,Metal,Metal,0.883701,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (70).jpg,Paper_Cardboard,Paper_Cardboard,0.837922,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1780140145295.jpg,Paper_Cardboard,Paper_Cardboard,0.785571,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Biological/Biological_1775487223986.jpg,Biological,Biological,0.752849,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1780162136236.jpg,Plastic,Plastic,0.358664,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/Battery_1780163685838.jpg,Battery,Battery,0.849565,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_battery_aa_pin_aa_aaa_1.5v_duracell_siêu_bền_-_hàng_chính_hãng_7.jpg,Battery,Battery,0.793882,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/vn-11134207-820l4-mfncxtz4xpmyde.webp,Plastic,Plastic,0.954076,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/z7684599403918_75b71ebbcb460cef43b7aaf3324ef210.jpg,Plastic,Plastic,0.959524,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/General_Waste_1775303104812.jpg,General_Waste,General_Waste,0.630984,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (25).jpg,Paper_Cardboard,Paper_Cardboard,0.822714,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_aa_0188.jpg,Battery,Battery,0.437158,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/Battery_1778254812767.jpg,Battery,Battery,0.835208,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1779524042757.jpg,Paper_Cardboard,Paper_Cardboard,0.817971,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/423df2ce65b079fa8208e95da4033586.jpg,Plastic,Metal,0.509573,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (60).jpg,Paper_Cardboard,Paper_Cardboard,0.885524,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1775245890911.jpg,Paper_Cardboard,Paper_Cardboard,0.680777,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_aa_01161.jpg,Battery,Battery,0.908755,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery42.jpg,Battery,Battery,0.844986,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/General_Waste_1779523092593.jpg,General_Waste,General_Waste,0.314280,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (92).jpg,Paper_Cardboard,Paper_Cardboard,0.865214,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_pin_aa_1.5v_combo_8_20_40_pin_tiểu_ó_vàng_aa_2a_chính_hãng_1_5v_pin_tiểu_aa_pinaco_20.jpg,Battery,Battery,0.931553,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (13).jpg,Paper_Cardboard,Paper_Cardboard,0.879062,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1775487758526.jpg,Paper_Cardboard,Paper_Cardboard,0.644800,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/General_Waste_1780140556449.jpg,General_Waste,General_Waste,0.393071,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/vn-11134207-7qukw-lggk8cnghi0aa3.jpg,Battery,Battery,0.810143,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/images (3).jpg,Metal,Metal,0.828450,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1778331713485.jpg,Metal,Paper_Cardboard,0.543503,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (65).jpg,Paper_Cardboard,Paper_Cardboard,0.759502,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1780143757953.jpg,Metal,Paper_Cardboard,0.567017,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_aa_0059.png,Battery,Battery,0.891265,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1775487136039.jpg,Plastic,Metal,0.512629,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1780162744145.jpg,Plastic,Plastic,0.606908,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/z7684599416036_5e83e9737ac020c26d1657c93bac693b.jpg,Plastic,Plastic,0.922484,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Biological/Biological_1779524160220.jpg,Biological,Biological,0.757269,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/002.jpg,Metal,Metal,0.860188,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1775247162599.jpg,Plastic,Plastic,0.829431,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/z7684599416037_adddd1489fef0737029af0fbcd9df518.jpg,Plastic,Plastic,0.857672,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery waste (54).jpg,Battery,Battery,0.915904,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/shopee_tương_ớt_tương_ớt_270g_tương_cà_270g_siracha_cholimex_đủ_vị_-_vị_cay_nồng_tự_nhiên_cho_món_ăn_thêm_đậm_đà_0.jpg,Plastic,Plastic,0.850096,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery901.jpg,Battery,Battery,0.922206,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Glass/Glass_1775302735899.jpg,Glass,Glass,0.888699,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1775245472334.jpg,Paper_Cardboard,Paper_Cardboard,0.777308,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/image_01776_aug.jpg,Battery,Battery,0.882904,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/General_Waste_1779522730781.jpg,General_Waste,General_Waste,0.669362,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_aa_0153.jpg,Battery,Battery,0.815942,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/fbd2ebd5-57fd-42ff-8cec-b1b9fcf45524.jpg,General_Waste,General_Waste,0.756368,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1779523212112.jpg,Paper_Cardboard,Paper_Cardboard,0.659511,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1775244760594.jpg,Paper_Cardboard,Paper_Cardboard,0.855280,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (57).jpg,Paper_Cardboard,Paper_Cardboard,0.685755,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/empty-sweet-wrappers-littering-the-pathway-EBGYXF.jpg,General_Waste,General_Waste,0.661964,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/Battery_1780163601808.jpg,Battery,Battery,0.890938,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/Battery_1779524000704.jpg,Battery,Battery,0.687731,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/sg-11134201-22110-e4hwz2h05wjv1f@resize_w900_nl.webp,Battery,Battery,0.800946,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/vn-11134207-7ras8-m3rikrsf5lm021.jpg,Battery,Battery,0.821393,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/z7684599555031_f903f360c86f96d6f6e6de01255ba5b3.jpg,Plastic,Plastic,0.899411,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1775247861206.jpg,Paper_Cardboard,Paper_Cardboard,0.686949,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1779522677452.jpg,Paper_Cardboard,Paper_Cardboard,0.767757,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (4).jpg,Paper_Cardboard,Paper_Cardboard,0.849522,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery805.jpg,Battery,Battery,0.888589,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/z7684599292840_612a9a9a6fc7346f92d5f672b8573c31.jpg,Plastic,Plastic,0.962053,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (40).jpg,Paper_Cardboard,Paper_Cardboard,0.908855,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1778255081189.jpg,Paper_Cardboard,Paper_Cardboard,0.571050,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_568.jpg,Battery,Battery,0.674452,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1780162073317.jpg,Plastic,Metal,0.419449,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1780138835611.jpg,Paper_Cardboard,Paper_Cardboard,0.868150,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/candy-wrapper-2025-02-11-15-52-08-utc.jpg,General_Waste,General_Waste,0.705837,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery98.jpg,Battery,Battery,0.787365,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_aa_0178.jpg,Battery,Battery,0.830301,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_energizer_aaa_pin_aa_pin_aaa_1_5v_energizer_max_plus_siêu_bền_-_hàng_chính_hãng_4.jpg,Battery,Battery,0.862592,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/General_Waste_1778255153995.jpg,General_Waste,General_Waste,0.581948,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1775247055265.jpg,Plastic,Plastic,0.954881,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery58.jpg,Battery,Battery,0.735279,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/General_Waste_1778254876499.jpg,General_Waste,Paper_Cardboard,0.403068,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1778331594849.jpg,Metal,Metal,0.476836,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1780161918216.jpg,Metal,Metal,0.830399,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/fbb84a8e3b8c858adc98db83eeff244a.jpg,Battery,Battery,0.889677,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Glass/Glass_1780139365161.jpg,Glass,Glass,0.892609,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/General_Waste_1778331656759.jpg,General_Waste,Battery,0.322500,0
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Glass/Glass_1780139520421.jpg,Glass,Glass,0.665176,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1775488349177.jpg,Paper_Cardboard,Paper_Cardboard,0.857642,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/b29049c8-6f04-400f-938a-a1e833405af4.jpg,General_Waste,General_Waste,0.613039,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/vn-11134207-7ras8-m3rikrsf5l1113.jpg,Battery,Battery,0.929264,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1780162116741.jpg,Plastic,Plastic,0.299055,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/Plastic_1780162569197.jpg,Plastic,Plastic,0.848952,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Metal/Metal_1780144081222.jpg,Metal,Metal,0.829674,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (118).jpg,Paper_Cardboard,Paper_Cardboard,0.761402,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1775247978572.jpg,Paper_Cardboard,Paper_Cardboard,0.605719,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/vn-11134207-7ra0g-m8h23fzvka16a38_tn.jpg,Battery,Battery,0.880676,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/bd88b94f5ae9facfe72d9ddd2b26e3f3.jpg,Plastic,Plastic,0.903940,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Plastic/shopee_tương_ớt_tương_ớt_270g_tương_cà_270g_siracha_cholimex_đủ_vị_-_vị_cay_nồng_tự_nhiên_cho_món_ăn_thêm_đậm_đà_9.jpg,Plastic,Plastic,0.934439,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery31.jpg,Battery,Battery,0.866173,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/battery_aa_0121.jpg,Battery,Battery,0.859162,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1780140182250.jpg,Paper_Cardboard,Paper_Cardboard,0.811058,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/milk (67).jpg,Paper_Cardboard,Paper_Cardboard,0.790677,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/iStock-1361902597.jpg,General_Waste,General_Waste,0.722128,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_pin_aaa_1.5v_hộp_60_viên_pin_aaa_panasonic_r03nt_2s_carbon_100_chính_hãng_4.jpg,Battery,Battery,0.918598,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/vn-11134207-7ras8-m11f1cppmun327.webp,Battery,Battery,0.893815,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Paper_Cardboard/Paper_Cardboard_1778254998508.jpg,Paper_Cardboard,Paper_Cardboard,0.770013,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/Battery/shopee_aaa_battery_pin_con_thỏ_pin_tiểu_aa_pin_đũa_aaa_hàng_vn_peekapaw_toys_11.jpg,Battery,Battery,0.815934,1
+/Users/capkimkhanh/Documents/DUT/PBL5/Model/DataSet/DataRealTest/General_Waste/a389857e-7fa7-4069-97b2-273f9cfd0bf4.jpg,General_Waste,General_Waste,0.914398,1
